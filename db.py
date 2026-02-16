@@ -49,6 +49,34 @@ CREATE TABLE IF NOT EXISTS knowledge (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Code snippets table
+CREATE TABLE IF NOT EXISTS code_snippets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title VARCHAR(500) NOT NULL,
+    language VARCHAR(50) NOT NULL,
+    code TEXT NOT NULL,
+    description TEXT,
+    tags TEXT[] DEFAULT '{}',
+    source_platform VARCHAR(50),
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Projects table
+CREATE TABLE IF NOT EXISTS projects (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(200) NOT NULL UNIQUE,
+    description TEXT,
+    tech_stack TEXT[] DEFAULT '{}',
+    repo_url VARCHAR(500),
+    context JSONB DEFAULT '{}',
+    tags TEXT[] DEFAULT '{}',
+    source_platform VARCHAR(50),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Full-text search indexes
 CREATE INDEX IF NOT EXISTS idx_conversations_search
     ON conversations USING GIN (to_tsvector('english', coalesce(title,'') || ' ' || coalesce(summary,'')));
@@ -64,8 +92,20 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_category
     ON knowledge(category);
 CREATE INDEX IF NOT EXISTS idx_knowledge_tags
     ON knowledge USING GIN (tags);
+CREATE INDEX IF NOT EXISTS idx_conversations_tags
+    ON conversations USING GIN (tags);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation
     ON messages(conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_code_snippets_search
+    ON code_snippets USING GIN (to_tsvector('english', coalesce(title,'') || ' ' || coalesce(description,'') || ' ' || code));
+CREATE INDEX IF NOT EXISTS idx_code_snippets_language
+    ON code_snippets(language);
+CREATE INDEX IF NOT EXISTS idx_code_snippets_tags
+    ON code_snippets USING GIN (tags);
+CREATE INDEX IF NOT EXISTS idx_projects_search
+    ON projects USING GIN (to_tsvector('english', coalesce(name,'') || ' ' || coalesce(description,'')));
+CREATE INDEX IF NOT EXISTS idx_projects_name
+    ON projects(name);
 """
 
 
@@ -619,3 +659,484 @@ async def get_platforms() -> list[str]:
     async with pool.acquire() as conn:
         rows = await conn.fetch("SELECT DISTINCT platform FROM conversations ORDER BY platform")
         return [r["platform"] for r in rows]
+
+
+# ─── New Tool Functions ──────────────────────────────────────────────────────
+
+import uuid as _uuid
+
+
+async def update_knowledge(
+    knowledge_id: str,
+    content: Optional[str] = None,
+    category: Optional[str] = None,
+    tags: Optional[list[str]] = None,
+) -> dict:
+    """Update an existing knowledge entry."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        try:
+            kid = _uuid.UUID(knowledge_id)
+        except ValueError:
+            return {"error": "Invalid UUID"}
+        existing = await conn.fetchrow("SELECT * FROM knowledge WHERE id = $1", kid)
+        if not existing:
+            return {"error": "Not found"}
+        new_content = content if content is not None else existing["content"]
+        new_category = category if category is not None else existing["category"]
+        new_tags = tags if tags is not None else existing["tags"]
+        await conn.execute(
+            "UPDATE knowledge SET content=$1, category=$2, tags=$3, updated_at=NOW() WHERE id=$4",
+            new_content, new_category, new_tags, kid,
+        )
+        return {"id": str(kid), "status": "updated", "content": new_content[:100], "category": new_category}
+
+
+async def list_all_knowledge(
+    category: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict:
+    """List all knowledge entries, optionally filtered by category."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        count_sql = "SELECT COUNT(*) FROM knowledge"
+        sql = "SELECT id, category, content, tags, source_platform, created_at FROM knowledge"
+        params = []
+        param_idx = 1
+        if category:
+            count_sql += f" WHERE category = ${param_idx}"
+            sql += f" WHERE category = ${param_idx}"
+            params.append(category)
+            param_idx += 1
+        total = await conn.fetchval(count_sql, *params)
+        sql += f" ORDER BY created_at DESC LIMIT ${param_idx} OFFSET ${param_idx + 1}"
+        params.extend([limit, offset])
+        rows = await conn.fetch(sql, *params)
+        return {
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "items": [
+                {"id": str(r["id"]), "category": r["category"], "content": r["content"],
+                 "tags": r["tags"], "source_platform": r["source_platform"],
+                 "created_at": r["created_at"].isoformat()}
+                for r in rows
+            ],
+        }
+
+
+async def get_conversation_by_id(conversation_id: str) -> Optional[dict]:
+    """Get a specific conversation by its UUID."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        try:
+            cid = _uuid.UUID(conversation_id)
+        except ValueError:
+            return None
+        row = await conn.fetchrow(
+            "SELECT id, platform, title, summary, tags, metadata, created_at, updated_at FROM conversations WHERE id = $1", cid
+        )
+        if not row:
+            return None
+        msg_rows = await conn.fetch(
+            "SELECT id, role, content, created_at FROM messages WHERE conversation_id = $1 ORDER BY created_at", cid
+        )
+        return {
+            "id": str(row["id"]),
+            "platform": row["platform"],
+            "title": row["title"],
+            "summary": row["summary"],
+            "tags": row["tags"],
+            "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
+            "created_at": row["created_at"].isoformat(),
+            "updated_at": row["updated_at"].isoformat(),
+            "messages": [
+                {"id": str(m["id"]), "role": m["role"], "content": m["content"], "created_at": m["created_at"].isoformat()}
+                for m in msg_rows
+            ],
+        }
+
+
+async def add_messages_to_conversation(conversation_id: str, messages: list[dict]) -> dict:
+    """Append messages to an existing conversation."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        try:
+            cid = _uuid.UUID(conversation_id)
+        except ValueError:
+            return {"error": "Invalid UUID"}
+        existing = await conn.fetchval("SELECT id FROM conversations WHERE id = $1", cid)
+        if not existing:
+            return {"error": "Conversation not found"}
+        async with conn.transaction():
+            for msg in messages:
+                await conn.execute(
+                    "INSERT INTO messages (conversation_id, role, content, metadata) VALUES ($1, $2, $3, $4)",
+                    cid, msg.get("role", "user"), msg.get("content", ""), json.dumps(msg.get("metadata", {})),
+                )
+            await conn.execute("UPDATE conversations SET updated_at = NOW() WHERE id = $1", cid)
+        total = await conn.fetchval("SELECT COUNT(*) FROM messages WHERE conversation_id = $1", cid)
+        return {"id": str(cid), "added": len(messages), "total_messages": total}
+
+
+async def update_conversation_tags(conversation_id: str, add_tags: list[str] = None, remove_tags: list[str] = None) -> dict:
+    """Add or remove tags from a conversation."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        try:
+            cid = _uuid.UUID(conversation_id)
+        except ValueError:
+            return {"error": "Invalid UUID"}
+        row = await conn.fetchrow("SELECT tags FROM conversations WHERE id = $1", cid)
+        if not row:
+            return {"error": "Conversation not found"}
+        current_tags = set(row["tags"] or [])
+        if add_tags:
+            current_tags.update(add_tags)
+        if remove_tags:
+            current_tags -= set(remove_tags)
+        new_tags = sorted(current_tags)
+        await conn.execute("UPDATE conversations SET tags = $1, updated_at = NOW() WHERE id = $2", new_tags, cid)
+        return {"id": str(cid), "tags": new_tags}
+
+
+async def get_knowledge_by_category(category: str, limit: int = 50) -> list[dict]:
+    """Get all knowledge entries in a specific category."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id, category, content, tags, source_platform, created_at FROM knowledge WHERE category = $1 ORDER BY created_at DESC LIMIT $2",
+            category, limit,
+        )
+        return [
+            {"id": str(r["id"]), "category": r["category"], "content": r["content"],
+             "tags": r["tags"], "source_platform": r["source_platform"],
+             "created_at": r["created_at"].isoformat()}
+            for r in rows
+        ]
+
+
+async def summarize_platform_activity(platform: str) -> dict:
+    """Get activity summary for a specific platform."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        conv_count = await conn.fetchval("SELECT COUNT(*) FROM conversations WHERE platform = $1", platform)
+        msg_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM messages m JOIN conversations c ON c.id = m.conversation_id WHERE c.platform = $1", platform
+        )
+        knowledge_count = await conn.fetchval("SELECT COUNT(*) FROM knowledge WHERE source_platform = $1", platform)
+        snippet_count = await conn.fetchval("SELECT COUNT(*) FROM code_snippets WHERE source_platform = $1", platform)
+        recent = await conn.fetch(
+            "SELECT title, summary, created_at FROM conversations WHERE platform = $1 ORDER BY created_at DESC LIMIT 5", platform
+        )
+        top_tags = await conn.fetch(
+            "SELECT unnest(tags) as tag, COUNT(*) as cnt FROM conversations WHERE platform = $1 GROUP BY tag ORDER BY cnt DESC LIMIT 10", platform
+        )
+        return {
+            "platform": platform,
+            "conversations": conv_count,
+            "messages": msg_count,
+            "knowledge_items": knowledge_count,
+            "code_snippets": snippet_count,
+            "recent_conversations": [
+                {"title": r["title"], "summary": r["summary"], "created_at": r["created_at"].isoformat()}
+                for r in recent
+            ],
+            "top_tags": {r["tag"]: r["cnt"] for r in top_tags},
+        }
+
+
+async def export_all_memories() -> dict:
+    """Export all data as JSON for backup."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        convs = await conn.fetch("SELECT * FROM conversations ORDER BY created_at")
+        msgs = await conn.fetch("SELECT * FROM messages ORDER BY created_at")
+        knowledge = await conn.fetch("SELECT * FROM knowledge ORDER BY created_at")
+        snippets = await conn.fetch("SELECT * FROM code_snippets ORDER BY created_at")
+        projects = await conn.fetch("SELECT * FROM projects ORDER BY created_at")
+
+        def row_to_dict(r):
+            d = dict(r)
+            for k, v in d.items():
+                if isinstance(v, _uuid.UUID):
+                    d[k] = str(v)
+                elif hasattr(v, 'isoformat'):
+                    d[k] = v.isoformat()
+            return d
+
+        return {
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "conversations": [row_to_dict(r) for r in convs],
+            "messages": [row_to_dict(r) for r in msgs],
+            "knowledge": [row_to_dict(r) for r in knowledge],
+            "code_snippets": [row_to_dict(r) for r in snippets],
+            "projects": [row_to_dict(r) for r in projects],
+        }
+
+
+async def import_memories(data: dict) -> dict:
+    """Import data from a JSON backup."""
+    pool = await get_pool()
+    counts = {"conversations": 0, "messages": 0, "knowledge": 0, "code_snippets": 0, "projects": 0}
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            for conv in data.get("conversations", []):
+                try:
+                    await conn.execute(
+                        "INSERT INTO conversations (id, platform, title, summary, tags, metadata, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO NOTHING",
+                        _uuid.UUID(conv["id"]), conv.get("platform",""), conv.get("title"), conv.get("summary"),
+                        conv.get("tags",[]), conv.get("metadata","{}"), conv.get("created_at"), conv.get("updated_at"),
+                    )
+                    counts["conversations"] += 1
+                except Exception:
+                    pass
+            for msg in data.get("messages", []):
+                try:
+                    await conn.execute(
+                        "INSERT INTO messages (id, conversation_id, role, content, metadata, created_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO NOTHING",
+                        _uuid.UUID(msg["id"]), _uuid.UUID(msg["conversation_id"]), msg.get("role","user"),
+                        msg.get("content",""), msg.get("metadata","{}"), msg.get("created_at"),
+                    )
+                    counts["messages"] += 1
+                except Exception:
+                    pass
+            for k in data.get("knowledge", []):
+                try:
+                    conv_id = _uuid.UUID(k["source_conversation_id"]) if k.get("source_conversation_id") else None
+                    await conn.execute(
+                        "INSERT INTO knowledge (id, category, content, tags, source_platform, source_conversation_id, metadata, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING",
+                        _uuid.UUID(k["id"]), k.get("category","fact"), k.get("content",""),
+                        k.get("tags",[]), k.get("source_platform"), conv_id,
+                        k.get("metadata","{}"), k.get("created_at"), k.get("updated_at"),
+                    )
+                    counts["knowledge"] += 1
+                except Exception:
+                    pass
+            for s in data.get("code_snippets", []):
+                try:
+                    await conn.execute(
+                        "INSERT INTO code_snippets (id, title, language, code, description, tags, source_platform, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO NOTHING",
+                        _uuid.UUID(s["id"]), s.get("title",""), s.get("language",""), s.get("code",""),
+                        s.get("description"), s.get("tags",[]), s.get("source_platform"), s.get("created_at"),
+                    )
+                    counts["code_snippets"] += 1
+                except Exception:
+                    pass
+            for p in data.get("projects", []):
+                try:
+                    await conn.execute(
+                        "INSERT INTO projects (id, name, description, tech_stack, repo_url, context, tags, source_platform, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING",
+                        _uuid.UUID(p["id"]), p.get("name",""), p.get("description"), p.get("tech_stack",[]),
+                        p.get("repo_url"), p.get("context","{}"), p.get("tags",[]), p.get("source_platform"), p.get("created_at"),
+                    )
+                    counts["projects"] += 1
+                except Exception:
+                    pass
+    return {"status": "imported", "counts": counts}
+
+
+async def count_memories() -> dict:
+    """Quick count of all memory types."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return {
+            "conversations": await conn.fetchval("SELECT COUNT(*) FROM conversations"),
+            "messages": await conn.fetchval("SELECT COUNT(*) FROM messages"),
+            "knowledge": await conn.fetchval("SELECT COUNT(*) FROM knowledge"),
+            "code_snippets": await conn.fetchval("SELECT COUNT(*) FROM code_snippets"),
+            "projects": await conn.fetchval("SELECT COUNT(*) FROM projects"),
+        }
+
+
+async def search_by_tags(tags: list[str], limit: int = 20) -> dict:
+    """Search conversations and knowledge by tags."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        conv_rows = await conn.fetch(
+            "SELECT id, platform, title, summary, tags, created_at FROM conversations WHERE tags && $1 ORDER BY created_at DESC LIMIT $2",
+            tags, limit,
+        )
+        k_rows = await conn.fetch(
+            "SELECT id, category, content, tags, source_platform, created_at FROM knowledge WHERE tags && $1 ORDER BY created_at DESC LIMIT $2",
+            tags, limit,
+        )
+        snippet_rows = await conn.fetch(
+            "SELECT id, title, language, description, tags, created_at FROM code_snippets WHERE tags && $1 ORDER BY created_at DESC LIMIT $2",
+            tags, limit,
+        )
+        return {
+            "searched_tags": tags,
+            "conversations": [
+                {"id": str(r["id"]), "platform": r["platform"], "title": r["title"],
+                 "summary": r["summary"], "tags": r["tags"], "created_at": r["created_at"].isoformat()}
+                for r in conv_rows
+            ],
+            "knowledge": [
+                {"id": str(r["id"]), "category": r["category"], "content": r["content"],
+                 "tags": r["tags"], "created_at": r["created_at"].isoformat()}
+                for r in k_rows
+            ],
+            "code_snippets": [
+                {"id": str(r["id"]), "title": r["title"], "language": r["language"],
+                 "description": r["description"], "tags": r["tags"], "created_at": r["created_at"].isoformat()}
+                for r in snippet_rows
+            ],
+        }
+
+
+async def get_related_knowledge(knowledge_id: str, limit: int = 10) -> list[dict]:
+    """Find knowledge entries related to a given one (by shared tags and content similarity)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        try:
+            kid = _uuid.UUID(knowledge_id)
+        except ValueError:
+            return []
+        source = await conn.fetchrow("SELECT content, tags FROM knowledge WHERE id = $1", kid)
+        if not source:
+            return []
+        rows = await conn.fetch(
+            """
+            SELECT id, category, content, tags, source_platform, created_at,
+                   ts_rank(to_tsvector('english', content), plainto_tsquery('english', $1)) AS rank
+            FROM knowledge
+            WHERE id != $2
+              AND (to_tsvector('english', content) @@ plainto_tsquery('english', $1) OR tags && $3)
+            ORDER BY rank DESC, created_at DESC LIMIT $4
+            """,
+            source["content"][:200], kid, source["tags"] or [], limit,
+        )
+        return [
+            {"id": str(r["id"]), "category": r["category"], "content": r["content"],
+             "tags": r["tags"], "source_platform": r["source_platform"],
+             "relevance": float(r["rank"]), "created_at": r["created_at"].isoformat()}
+            for r in rows
+        ]
+
+
+async def clear_platform_data(platform: str) -> dict:
+    """Delete all data for a specific platform."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            conv_del = await conn.execute("DELETE FROM conversations WHERE platform = $1", platform)
+            k_del = await conn.execute("DELETE FROM knowledge WHERE source_platform = $1", platform)
+            s_del = await conn.execute("DELETE FROM code_snippets WHERE source_platform = $1", platform)
+            p_del = await conn.execute("DELETE FROM projects WHERE source_platform = $1", platform)
+            return {
+                "platform": platform,
+                "deleted_conversations": int(conv_del.split()[-1]) if conv_del else 0,
+                "deleted_knowledge": int(k_del.split()[-1]) if k_del else 0,
+                "deleted_snippets": int(s_del.split()[-1]) if s_del else 0,
+                "deleted_projects": int(p_del.split()[-1]) if p_del else 0,
+            }
+
+
+async def save_code_snippet(
+    title: str,
+    language: str,
+    code: str,
+    description: Optional[str] = None,
+    tags: Optional[list[str]] = None,
+    source_platform: Optional[str] = None,
+) -> dict:
+    """Save a reusable code snippet."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "INSERT INTO code_snippets (title, language, code, description, tags, source_platform) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, created_at",
+            title, language.lower(), code, description, tags or [], source_platform,
+        )
+        return {"id": str(row["id"]), "title": title, "language": language, "created_at": row["created_at"].isoformat()}
+
+
+async def search_code_snippets(
+    query: str,
+    language: Optional[str] = None,
+    tags: Optional[list[str]] = None,
+    limit: int = 10,
+) -> list[dict]:
+    """Search code snippets by keyword, language, or tags."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        sql = """
+            SELECT id, title, language, code, description, tags, source_platform, created_at,
+                   ts_rank(to_tsvector('english', coalesce(title,'') || ' ' || coalesce(description,'') || ' ' || code),
+                           plainto_tsquery('english', $1)) AS rank
+            FROM code_snippets
+            WHERE to_tsvector('english', coalesce(title,'') || ' ' || coalesce(description,'') || ' ' || code) @@ plainto_tsquery('english', $1)
+        """
+        params = [query]
+        param_idx = 2
+        if language:
+            sql += f" AND language = ${param_idx}"
+            params.append(language.lower())
+            param_idx += 1
+        if tags:
+            sql += f" AND tags && ${param_idx}"
+            params.append(tags)
+            param_idx += 1
+        sql += f" ORDER BY rank DESC, created_at DESC LIMIT ${param_idx}"
+        params.append(limit)
+        rows = await conn.fetch(sql, *params)
+        return [
+            {"id": str(r["id"]), "title": r["title"], "language": r["language"],
+             "code": r["code"], "description": r["description"], "tags": r["tags"],
+             "source_platform": r["source_platform"], "created_at": r["created_at"].isoformat()}
+            for r in rows
+        ]
+
+
+async def save_project_context(
+    name: str,
+    description: Optional[str] = None,
+    tech_stack: Optional[list[str]] = None,
+    repo_url: Optional[str] = None,
+    context: Optional[dict] = None,
+    tags: Optional[list[str]] = None,
+    source_platform: Optional[str] = None,
+) -> dict:
+    """Save or update project context. Upserts by project name."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO projects (name, description, tech_stack, repo_url, context, tags, source_platform)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (name) DO UPDATE SET
+                description = COALESCE(EXCLUDED.description, projects.description),
+                tech_stack = CASE WHEN EXCLUDED.tech_stack = '{}' THEN projects.tech_stack ELSE EXCLUDED.tech_stack END,
+                repo_url = COALESCE(EXCLUDED.repo_url, projects.repo_url),
+                context = projects.context || EXCLUDED.context,
+                tags = ARRAY(SELECT DISTINCT unnest(projects.tags || EXCLUDED.tags)),
+                source_platform = COALESCE(EXCLUDED.source_platform, projects.source_platform),
+                updated_at = NOW()
+            RETURNING id, created_at, updated_at
+            """,
+            name, description, tech_stack or [], repo_url,
+            json.dumps(context or {}), tags or [], source_platform,
+        )
+        return {"id": str(row["id"]), "name": name, "created_at": row["created_at"].isoformat(), "updated_at": row["updated_at"].isoformat()}
+
+
+async def get_project_context(name: str) -> Optional[dict]:
+    """Get all context for a project by name."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM projects WHERE name = $1", name)
+        if not row:
+            return None
+        return {
+            "id": str(row["id"]),
+            "name": row["name"],
+            "description": row["description"],
+            "tech_stack": row["tech_stack"],
+            "repo_url": row["repo_url"],
+            "context": json.loads(row["context"]) if row["context"] else {},
+            "tags": row["tags"],
+            "source_platform": row["source_platform"],
+            "created_at": row["created_at"].isoformat(),
+            "updated_at": row["updated_at"].isoformat(),
+        }

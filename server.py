@@ -304,6 +304,407 @@ async def auto_extract_preferences(
     return json.dumps(results, indent=2)
 
 
+@mcp.tool()
+async def update_knowledge(
+    knowledge_id: str,
+    content: str = "",
+    category: str = "",
+    tags: list[str] = [],
+) -> str:
+    """
+    Update an existing knowledge entry.
+
+    Args:
+        knowledge_id: The UUID of the knowledge entry to update
+        content: New content (leave empty to keep existing)
+        category: New category (leave empty to keep existing)
+        tags: New tags (leave empty to keep existing)
+
+    Returns:
+        JSON string with updated knowledge entry details.
+    """
+    result = await db.update_knowledge(
+        knowledge_id=knowledge_id,
+        content=content or None,
+        category=category.lower().strip() or None,
+        tags=tags or None,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def list_all_knowledge(
+    category: str = "",
+    limit: int = 50,
+    offset: int = 0,
+) -> str:
+    """
+    List all stored knowledge entries, optionally filtered by category.
+
+    Useful for browsing all facts, preferences, instructions, or decisions
+    stored in memory. Supports pagination.
+
+    Args:
+        category: Optional - filter by category ('fact', 'preference', 'instruction', etc.)
+        limit: Maximum number of entries to return (default: 50)
+        offset: Number of entries to skip for pagination (default: 0)
+
+    Returns:
+        JSON string with total count, pagination info, and knowledge items.
+    """
+    result = await db.list_all_knowledge(
+        category=category.lower().strip() if category else None,
+        limit=min(limit, 100),
+        offset=offset,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def get_conversation_by_id(
+    conversation_id: str,
+) -> str:
+    """
+    Retrieve a specific conversation by its UUID, including all messages.
+
+    Args:
+        conversation_id: The UUID of the conversation to retrieve
+
+    Returns:
+        JSON string with the full conversation including all messages.
+    """
+    result = await db.get_conversation_by_id(conversation_id)
+    if not result:
+        return json.dumps({"error": "Conversation not found", "id": conversation_id})
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def add_message_to_conversation(
+    conversation_id: str,
+    messages: list[dict],
+) -> str:
+    """
+    Append new messages to an existing conversation.
+
+    Useful for continuing a conversation without creating a new one.
+
+    Args:
+        conversation_id: The UUID of the conversation to add messages to
+        messages: List of message objects, each with 'role' and 'content'
+
+    Returns:
+        JSON string with the conversation ID, number of added messages, and new total.
+    """
+    result = await db.add_messages_to_conversation(conversation_id, messages)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def tag_conversation(
+    conversation_id: str,
+    add_tags: list[str] = [],
+    remove_tags: list[str] = [],
+) -> str:
+    """
+    Add or remove tags from a conversation.
+
+    Args:
+        conversation_id: The UUID of the conversation
+        add_tags: Tags to add to the conversation
+        remove_tags: Tags to remove from the conversation
+
+    Returns:
+        JSON string with the conversation ID and updated tags list.
+    """
+    result = await db.update_conversation_tags(
+        conversation_id, add_tags=add_tags or None, remove_tags=remove_tags or None,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def get_knowledge_by_category(
+    category: str,
+    limit: int = 50,
+) -> str:
+    """
+    Get all knowledge entries in a specific category.
+
+    Example categories: 'fact', 'preference', 'instruction', 'decision', 'project'.
+
+    Args:
+        category: The category to filter by
+        limit: Maximum results (default: 50)
+
+    Returns:
+        JSON string with all knowledge entries in that category.
+    """
+    results = await db.get_knowledge_by_category(category.lower().strip(), min(limit, 100))
+    return json.dumps({"category": category, "count": len(results), "items": results}, indent=2)
+
+
+@mcp.tool()
+async def summarize_platform_activity(
+    platform: str,
+) -> str:
+    """
+    Get a detailed activity summary for a specific AI platform.
+
+    Shows conversation count, message count, knowledge items, recent conversations,
+    and most used tags for the platform.
+
+    Args:
+        platform: Platform name (e.g., 'antigravity', 'cursor', 'vscode')
+
+    Returns:
+        JSON string with comprehensive platform activity statistics.
+    """
+    result = await db.summarize_platform_activity(platform.lower().strip())
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def export_memories() -> str:
+    """
+    Export all stored data as JSON for backup purposes.
+
+    Exports conversations, messages, knowledge entries, code snippets, and projects.
+    The output can be saved and later imported using import_memories.
+
+    Returns:
+        JSON string with all data (conversations, messages, knowledge, snippets, projects).
+    """
+    result = await db.export_all_memories()
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def import_memories(
+    data: dict,
+) -> str:
+    """
+    Import data from a JSON backup into the memory database.
+
+    Expects the same format as produced by export_memories.
+    Uses upsert logic — existing entries (by UUID) are skipped, not duplicated.
+
+    Args:
+        data: The full backup object with keys: conversations, messages, knowledge, code_snippets, projects
+
+    Returns:
+        JSON string with import counts per entity type.
+    """
+    result = await db.import_memories(data)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def count_memories() -> str:
+    """
+    Get a quick count of all stored memory types.
+
+    Returns counts for conversations, messages, knowledge entries, code snippets, and projects.
+
+    Returns:
+        JSON string with counts for each memory type.
+    """
+    result = await db.count_memories()
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def search_by_tags(
+    tags: list[str],
+    limit: int = 20,
+) -> str:
+    """
+    Search conversations, knowledge, and code snippets by tags.
+
+    Finds all items that have ANY of the specified tags.
+
+    Args:
+        tags: List of tags to search for
+        limit: Maximum results per category (default: 20)
+
+    Returns:
+        JSON string with matching conversations, knowledge items, and code snippets.
+    """
+    result = await db.search_by_tags(tags, min(limit, 50))
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def get_related_knowledge(
+    knowledge_id: str,
+    limit: int = 10,
+) -> str:
+    """
+    Find knowledge entries related to a given one.
+
+    Uses content similarity and shared tags to find related entries.
+
+    Args:
+        knowledge_id: UUID of the knowledge entry to find related items for
+        limit: Maximum number of related items (default: 10)
+
+    Returns:
+        JSON string with related knowledge entries and their relevance scores.
+    """
+    results = await db.get_related_knowledge(knowledge_id, min(limit, 50))
+    if not results:
+        return json.dumps({"message": "No related knowledge found.", "results": []})
+    return json.dumps({"count": len(results), "results": results}, indent=2)
+
+
+@mcp.tool()
+async def clear_platform_data(
+    platform: str,
+) -> str:
+    """
+    Delete ALL data for a specific platform. ⚠️ This is destructive!
+
+    Removes all conversations, knowledge entries, code snippets, and projects
+    associated with the specified platform. Cannot be undone.
+
+    Args:
+        platform: The platform to clear all data for (e.g., 'antigravity', 'cursor')
+
+    Returns:
+        JSON string with deletion counts per entity type.
+    """
+    result = await db.clear_platform_data(platform.lower().strip())
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def save_code_snippet(
+    title: str,
+    language: str,
+    code: str,
+    description: str = "",
+    tags: list[str] = [],
+    source_platform: str = "",
+) -> str:
+    """
+    Save a reusable code snippet with language tag.
+
+    Store useful code patterns, solutions, and templates for later retrieval.
+
+    Args:
+        title: Short descriptive title for the snippet
+        language: Programming language (e.g., 'python', 'javascript', 'bash')
+        code: The actual code content
+        description: Optional longer description of what the code does
+        tags: Optional tags for categorization
+        source_platform: The platform where this snippet was created
+
+    Returns:
+        JSON string with the saved snippet ID and details.
+    """
+    result = await db.save_code_snippet(
+        title=title,
+        language=language.lower().strip(),
+        code=code,
+        description=description or None,
+        tags=tags,
+        source_platform=source_platform.lower().strip() if source_platform else None,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def search_code_snippets(
+    query: str,
+    language: str = "",
+    tags: list[str] = [],
+    limit: int = 10,
+) -> str:
+    """
+    Search stored code snippets by keyword, language, or tags.
+
+    Args:
+        query: Search query (keywords or description)
+        language: Optional - filter by programming language
+        tags: Optional - filter by tags
+        limit: Maximum results (default: 10)
+
+    Returns:
+        JSON string with matching code snippets including full code.
+    """
+    results = await db.search_code_snippets(
+        query=query,
+        language=language.lower().strip() if language else None,
+        tags=tags if tags else None,
+        limit=min(limit, 50),
+    )
+    if not results:
+        return json.dumps({"message": "No matching code snippets found.", "results": []})
+    return json.dumps({"count": len(results), "results": results}, indent=2)
+
+
+@mcp.tool()
+async def save_project_context(
+    name: str,
+    description: str = "",
+    tech_stack: list[str] = [],
+    repo_url: str = "",
+    context: dict = {},
+    tags: list[str] = [],
+    source_platform: str = "",
+) -> str:
+    """
+    Save or update project-level context (tech stack, repos, architecture, etc.).
+
+    If a project with the same name already exists, it will be updated (merged).
+    Use this to store high-level project information that persists across conversations.
+
+    Args:
+        name: Project name (unique identifier)
+        description: What the project does
+        tech_stack: List of technologies used (e.g., ['python', 'postgresql', 'docker'])
+        repo_url: Git repository URL
+        context: Additional context as key-value pairs (e.g., {"api_port": 8080, "database": "postgresql"})
+        tags: Tags for categorization
+        source_platform: The platform where this was recorded
+
+    Returns:
+        JSON string with the saved/updated project details.
+    """
+    result = await db.save_project_context(
+        name=name,
+        description=description or None,
+        tech_stack=tech_stack,
+        repo_url=repo_url or None,
+        context=context,
+        tags=tags,
+        source_platform=source_platform.lower().strip() if source_platform else None,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def get_project_context(
+    name: str,
+) -> str:
+    """
+    Retrieve all stored context for a project by name.
+
+    Returns the full project record including description, tech stack,
+    repository URL, custom context, and tags.
+
+    Args:
+        name: The project name to look up
+
+    Returns:
+        JSON string with the full project context, or error if not found.
+    """
+    result = await db.get_project_context(name)
+    if not result:
+        return json.dumps({"error": "Project not found", "name": name})
+    return json.dumps(result, indent=2)
+
+
 # ─── MCP Resources ───────────────────────────────────────────────────────────
 
 
