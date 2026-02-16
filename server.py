@@ -31,13 +31,31 @@ mcp = FastMCP(
     "LLM Memory",
     host=HOST,
     port=PORT,
+    stateless_http=True,
     instructions="""
     You are connected to a persistent memory server shared across all AI platforms.
     Use these tools to save and retrieve conversations, knowledge, and context.
 
-    IMPORTANT GUIDELINES:
-    - When the user shares important information, preferences, or instructions,
-      use 'save_knowledge' to store it for future reference.
+    CRITICAL — AUTOMATIC PREFERENCE SAVING:
+    You MUST proactively detect and save user preferences, facts, and decisions
+    during EVERY conversation — WITHOUT being asked. This is your most important job.
+
+    Watch for and automatically save:
+    - Language/framework preferences ("I prefer Python", "I use React")
+    - Tool preferences ("I use Docker", "I deploy on AWS")
+    - Coding style ("I like type hints", "I prefer functional style")
+    - Project context ("The API runs on port 8080", "We use PostgreSQL")
+    - Personal preferences ("I prefer dark mode", "I like concise answers")
+    - Decisions ("We decided to use microservices", "We chose MIT license")
+    - Instructions ("Always use async/await", "Never use var in JS")
+
+    HOW TO SAVE AUTOMATICALLY:
+    - Use 'save_knowledge' with category='preference', 'fact', 'instruction', or 'decision'
+    - OR use 'auto_extract_preferences' to batch-extract from a conversation
+    - Always include relevant tags for searchability
+    - Always set source_platform to your platform name
+
+    OTHER GUIDELINES:
     - When finishing a meaningful conversation, use 'save_conversation' to
       preserve the exchange for future context.
     - Before answering questions about past interactions, use 'search_memory'
@@ -257,6 +275,33 @@ async def delete_memory(
     if success:
         return json.dumps({"status": "deleted", "id": memory_id, "type": memory_type})
     return json.dumps({"status": "not_found", "id": memory_id, "type": memory_type})
+
+
+@mcp.tool()
+async def auto_extract_preferences(
+    conversation_text: str,
+    source_platform: str = "",
+) -> str:
+    """
+    Automatically extract and save user preferences, facts, and decisions from conversation text.
+
+    Call this at the END of every meaningful conversation to ensure nothing is lost.
+    The tool parses the text for preference-like statements and saves each one
+    as a knowledge entry, with deduplication (no duplicates will be created).
+
+    Args:
+        conversation_text: The full conversation text or a summary of key points.
+                          Can be raw transcript or a bullet-point list of facts/preferences.
+        source_platform: The AI platform name (e.g., 'antigravity', 'cursor', 'vscode')
+
+    Returns:
+        JSON with the number of new entries saved and any that were skipped as duplicates.
+    """
+    results = await db.extract_and_save_preferences(
+        text=conversation_text,
+        source_platform=source_platform.lower().strip() if source_platform else None,
+    )
+    return json.dumps(results, indent=2)
 
 
 # ─── MCP Resources ───────────────────────────────────────────────────────────

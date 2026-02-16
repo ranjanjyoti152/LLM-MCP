@@ -6,6 +6,7 @@ Handles connection pooling, schema initialization, and all query operations.
 import asyncpg
 import os
 import json
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -398,6 +399,166 @@ async def get_context_summary(
             "knowledge_items": knowledge_items,
             "recent_conversations": conversations,
         }
+
+
+# ─── Auto-Extract Preferences ──────────────────────────────────────────────
+
+
+# Keywords that indicate each category
+_PREFERENCE_KEYWORDS = re.compile(
+    r'\b(prefer|like|love|enjoy|favor|want|choose|rather|my favorite|i use|i always)\b',
+    re.IGNORECASE,
+)
+_INSTRUCTION_KEYWORDS = re.compile(
+    r'\b(always|never|must|should|don\'t|do not|make sure|ensure|avoid|remember to)\b',
+    re.IGNORECASE,
+)
+_DECISION_KEYWORDS = re.compile(
+    r'\b(decided|decision|chose|chosen|agreed|we will|going to|settled on|switched to|migrated to)\b',
+    re.IGNORECASE,
+)
+
+
+def _classify_statement(text: str) -> str:
+    """Classify a statement into a knowledge category."""
+    if _PREFERENCE_KEYWORDS.search(text):
+        return "preference"
+    if _INSTRUCTION_KEYWORDS.search(text):
+        return "instruction"
+    if _DECISION_KEYWORDS.search(text):
+        return "decision"
+    return "fact"
+
+
+def _extract_statements(text: str) -> list[str]:
+    """Split text into individual meaningful statements."""
+    # Handle bullet points, numbered lists, and newline-separated items
+    lines = re.split(r'\n+', text.strip())
+    statements = []
+    for line in lines:
+        # Strip bullet markers: -, *, •, numbered (1., 2.), etc.
+        line = re.sub(r'^\s*[-*•]\s*', '', line)
+        line = re.sub(r'^\s*\d+[.)]\s*', '', line)
+        line = line.strip()
+        if not line or len(line) < 10:
+            continue
+        # If a line has multiple sentences, split them
+        sentences = re.split(r'(?<=[.!?])\s+', line)
+        for s in sentences:
+            s = s.strip()
+            if len(s) >= 10:
+                statements.append(s)
+    return statements
+
+
+def _extract_tags(text: str) -> list[str]:
+    """Extract relevant tags from a statement."""
+    tag_patterns = {
+        "python": r'\bpython\b',
+        "javascript": r'\bjavascript|js|node\.?js|typescript|ts\b',
+        "docker": r'\bdocker\b',
+        "postgresql": r'\bpostgre(?:sql|s)?\b',
+        "react": r'\breact\b',
+        "aws": r'\baws\b',
+        "linux": r'\blinux\b',
+        "git": r'\bgit(?:hub|lab)?\b',
+        "api": r'\bapi|rest|graphql\b',
+        "database": r'\bdatabase|db|sql|mysql|mongo\b',
+        "testing": r'\btest(?:ing|s)?\b',
+        "deployment": r'\bdeploy(?:ment|ing)?\b',
+        "security": r'\bsecurity|auth(?:entication)?\b',
+        "frontend": r'\bfrontend|front-end|css|html\b',
+        "backend": r'\bbackend|back-end|server\b',
+        "devops": r'\bdevops|ci/?cd|pipeline\b',
+        "ai": r'\bai|ml|llm|machine.learning\b',
+        "coding-style": r'\bstyle|convention|pattern|clean.code\b',
+    }
+    tags = []
+    lower = text.lower()
+    for tag, pattern in tag_patterns.items():
+        if re.search(pattern, lower):
+            tags.append(tag)
+    return tags
+
+
+async def save_knowledge_if_new(
+    category: str,
+    content: str,
+    tags: Optional[list[str]] = None,
+    source_platform: Optional[str] = None,
+) -> dict:
+    """Save a knowledge entry only if a near-duplicate doesn't already exist."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        # Check for existing similar entries using full-text search
+        existing = await conn.fetchval(
+            """
+            SELECT id FROM knowledge
+            WHERE to_tsvector('english', content) @@ plainto_tsquery('english', $1)
+            AND category = $2
+            LIMIT 1
+            """,
+            content, category,
+        )
+        if existing:
+            return {"status": "skipped", "reason": "duplicate", "existing_id": str(existing)}
+
+        # No duplicate — save it
+        row = await conn.fetchrow(
+            """
+            INSERT INTO knowledge (category, content, tags, source_platform, metadata)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING id, created_at
+            """,
+            category,
+            content,
+            tags or [],
+            source_platform,
+            json.dumps({}),
+        )
+        return {
+            "status": "saved",
+            "id": str(row["id"]),
+            "category": category,
+            "content": content[:100] + "..." if len(content) > 100 else content,
+            "created_at": row["created_at"].isoformat(),
+        }
+
+
+async def extract_and_save_preferences(
+    text: str,
+    source_platform: Optional[str] = None,
+) -> dict:
+    """Extract preference-like statements from text and save each as deduplicated knowledge."""
+    statements = _extract_statements(text)
+    saved = []
+    skipped = []
+
+    for statement in statements:
+        category = _classify_statement(statement)
+        tags = _extract_tags(statement)
+        if source_platform:
+            tags.append(source_platform)
+
+        result = await save_knowledge_if_new(
+            category=category,
+            content=statement,
+            tags=list(set(tags)),
+            source_platform=source_platform,
+        )
+
+        if result["status"] == "saved":
+            saved.append(result)
+        else:
+            skipped.append({"content": statement[:80], "reason": result["reason"]})
+
+    return {
+        "total_extracted": len(statements),
+        "newly_saved": len(saved),
+        "duplicates_skipped": len(skipped),
+        "saved_entries": saved,
+        "skipped_entries": skipped,
+    }
 
 
 # ─── Delete Operations ──────────────────────────────────────────────────────

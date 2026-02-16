@@ -122,6 +122,34 @@ async def main():
                     "memory_type": "conversation",
                 })
 
+            # ── Test 9: Auto-extract preferences ──
+            extract_result = await call_tool(session, "auto_extract_preferences", {
+                "conversation_text": """
+                - I prefer Python for backend development
+                - I always use Docker for containerization
+                - We decided to use PostgreSQL for all new projects
+                - Never use var in JavaScript, always use const or let
+                - I enjoy using Linux as my daily driver
+                - The API gateway runs on port 8080
+                """,
+                "source_platform": "test_client",
+            })
+
+            # ── Test 10: Verify extracted preferences are searchable ──
+            await call_tool(session, "search_knowledge", {
+                "query": "Python backend",
+                "limit": 5,
+            })
+
+            # ── Test 11: Re-extract same preferences (should skip duplicates) ──
+            dedup_result = await call_tool(session, "auto_extract_preferences", {
+                "conversation_text": """
+                - I prefer Python for backend development
+                - I always use Docker for containerization
+                """,
+                "source_platform": "test_client",
+            })
+
             print("\n" + "=" * 60)
             print("✅ All tests completed successfully!")
             print("=" * 60)
