@@ -1,0 +1,409 @@
+<p align="center">
+  <h1 align="center">🧠 LLM Memory MCP Server</h1>
+  <p align="center">
+    <strong>A unified, persistent memory layer for all your AI coding assistants.</strong>
+  </p>
+  <p align="center">
+    Save conversations, knowledge, and context from <em>any</em> platform — retrieve it from <em>every</em> platform.
+  </p>
+  <p align="center">
+    <a href="#-quick-start"><img src="https://img.shields.io/badge/Get_Started-blue?style=for-the-badge" alt="Get Started"></a>
+    <img src="https://img.shields.io/badge/python-3.12-blue?style=flat-square&logo=python&logoColor=white" alt="Python 3.12">
+    <img src="https://img.shields.io/badge/PostgreSQL-16-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL 16">
+    <img src="https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker">
+    <img src="https://img.shields.io/badge/MCP-Streamable_HTTP-green?style=flat-square" alt="MCP">
+    <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat-square" alt="MIT">
+  </p>
+</p>
+
+---
+
+## 💡 The Problem
+
+You use **multiple AI assistants** daily — Antigravity, Cursor, VS Code Copilot, Gemini, ChatGPT — but **none of them remember** what you discussed in the other.  
+
+Every time you switch platforms, you start from scratch. Your preferences, project context, past decisions — all lost.
+
+## ✨ The Solution
+
+**LLM Memory MCP Server** gives every AI platform a **shared brain**. It stores your conversations, knowledge, and preferences in a PostgreSQL database, accessible via the open [Model Context Protocol (MCP)](https://modelcontextprotocol.io) standard.
+
+> **Save a fact in Cursor → recall it in Antigravity → search for it in VS Code.**
+
+---
+
+## 🏗️ Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                        YOUR AI PLATFORMS                             │
+│                                                                      │
+│  ┌─────────────┐ ┌────────┐ ┌──────────┐ ┌────────┐ ┌───────────┐  │
+│  │ Antigravity  │ │ Cursor │ │ VS Code  │ │ Gemini │ │  ChatGPT  │  │
+│  │   (Google)   │ │        │ │ Copilot  │ │  CLI   │ │  / Claude │  │
+│  └──────┬───────┘ └───┬────┘ └────┬─────┘ └───┬────┘ └─────┬─────┘  │
+│         │             │           │            │            │         │
+└─────────┼─────────────┼───────────┼────────────┼────────────┼────────┘
+          │             │           │            │            │
+          ▼             ▼           ▼            ▼            ▼
+    ┌─────────────────────────────────────────────────────────────┐
+    │              Streamable HTTP  (:4040/mcp)                   │
+    │  ┌───────────────────────────────────────────────────────┐  │
+    │  │             🧠 LLM Memory MCP Server                  │  │
+    │  │  ┌──────────────────┐  ┌────────────────────────┐     │  │
+    │  │  │   7 MCP Tools    │  │    2 MCP Resources     │     │  │
+    │  │  │  save, search,   │  │  stats, platforms      │     │  │
+    │  │  │  retrieve, delete│  │                        │     │  │
+    │  │  └────────┬─────────┘  └───────────┬────────────┘     │  │
+    │  └───────────┼────────────────────────┼──────────────────┘  │
+    └──────────────┼────────────────────────┼─────────────────────┘
+                   │                        │
+                   ▼                        ▼
+    ┌─────────────────────────────────────────────────────────────┐
+    │                 PostgreSQL 16  (:4569)                       │
+    │  ┌────────────────┐ ┌──────────┐ ┌───────────────────┐      │
+    │  │ conversations   │ │ messages │ │    knowledge      │      │
+    │  │ (platform, tags)│ │ (role,   │ │ (category, tags,  │      │
+    │  │                 │ │  content)│ │  source_platform) │      │
+    │  └────────────────┘ └──────────┘ └───────────────────┘      │
+    │              Full-Text Search Indexes (GIN)                  │
+    └─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🎯 Supported Platforms
+
+| Platform | Transport | Status |
+|:---------|:----------|:------:|
+| **Antigravity** (Google) | Streamable HTTP | ✅ Ready |
+| **Cursor** | Streamable HTTP | ✅ Ready |
+| **VS Code** + GitHub Copilot | Streamable HTTP | ✅ Ready |
+| **Gemini CLI** | Streamable HTTP | ✅ Ready |
+| **Claude Desktop** | Streamable HTTP | ✅ Ready |
+| **ChatGPT** (MCP-compatible) | Streamable HTTP | ✅ Ready |
+| Any MCP-compatible client | Streamable HTTP | ✅ Ready |
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) & [Docker Compose](https://docs.docker.com/compose/install/) installed
+- Git (optional, for cloning)
+
+### 1. Clone & Start
+
+```bash
+git clone https://github.com/YOUR_USERNAME/LLM-MCP.git
+cd LLM-MCP
+
+# Start PostgreSQL + MCP Server
+docker compose up -d
+```
+
+### 2. Verify
+
+```bash
+# Check containers are healthy
+docker compose ps
+
+# Expected output:
+# llm-mcp-postgres   ... Up (healthy)   0.0.0.0:4569->5432/tcp
+# llm-mcp-server     ... Up             0.0.0.0:4040->4040/tcp
+```
+
+### 3. Connect Your AI Platform
+
+Add the MCP server URL to your platform's config (see [detailed guides below](#-platform-configuration)):
+
+```
+http://localhost:4040/mcp
+```
+
+### 4. Test It!
+
+Ask your AI assistant:
+
+> *"Save a knowledge entry: I prefer Python for backend and use Docker for everything."*
+
+Switch to a **different** AI platform and ask:
+
+> *"Search my memory for my tech preferences."*
+
+✨ The knowledge persists across all your platforms!
+
+---
+
+## 🔧 Platform Configuration
+
+### <img src="https://img.shields.io/badge/-Antigravity-4285F4?style=flat-square&logo=google&logoColor=white" alt="Antigravity"> Antigravity (Google)
+
+**Option A** — Via UI: Go to **Settings → MCP Servers → Add** and paste the URL.
+
+**Option B** — Via config file (`mcp_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "llm-memory": {
+      "url": "http://localhost:4040/mcp"
+    }
+  }
+}
+```
+
+---
+
+### <img src="https://img.shields.io/badge/-Cursor-000000?style=flat-square&logo=cursor&logoColor=white" alt="Cursor"> Cursor
+
+**Option A** — Via UI: **Settings → MCP Servers → Add New MCP Server**
+
+**Option B** — Project-level config (`.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "llm-memory": {
+      "url": "http://localhost:4040/mcp"
+    }
+  }
+}
+```
+
+**Option C** — Global config (`~/.cursor/mcp.json`) — applies to all projects.
+
+---
+
+### <img src="https://img.shields.io/badge/-VS_Code-007ACC?style=flat-square&logo=visualstudiocode&logoColor=white" alt="VS Code"> VS Code + GitHub Copilot
+
+**Option A** — Via Command Palette: `Ctrl+Shift+P` → `MCP: Add Server` → HTTP → enter `http://localhost:4040/mcp`
+
+**Option B** — Workspace config (`.vscode/mcp.json`):
+
+```json
+{
+  "servers": {
+    "llm-memory": {
+      "type": "http",
+      "url": "http://localhost:4040/mcp"
+    }
+  }
+}
+```
+
+**Option C** — User settings (global): Add the same config to your VS Code user `settings.json` under `"mcp"`.
+
+---
+
+### <img src="https://img.shields.io/badge/-Gemini_CLI-8E75B2?style=flat-square&logo=googlegemini&logoColor=white" alt="Gemini"> Gemini CLI
+
+Edit `~/.gemini/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "llm-memory": {
+      "httpUrl": "http://localhost:4040/mcp"
+    }
+  }
+}
+```
+
+---
+
+### <img src="https://img.shields.io/badge/-Claude-D4A574?style=flat-square" alt="Claude"> Claude Desktop
+
+Go to **Settings → Developer → Edit Config** (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "llm-memory": {
+      "url": "http://localhost:4040/mcp"
+    }
+  }
+}
+```
+
+---
+
+### <img src="https://img.shields.io/badge/-ChatGPT-74AA9C?style=flat-square&logo=openai&logoColor=white" alt="ChatGPT"> ChatGPT / Other MCP Clients
+
+For any platform that supports MCP via HTTP, use:
+
+```
+Endpoint:   http://localhost:4040/mcp
+Transport:  Streamable HTTP (POST/GET with optional SSE streaming)
+```
+
+---
+
+## 🛠️ Available MCP Tools
+
+| Tool | Description | Example Use |
+|:-----|:------------|:------------|
+| `save_conversation` | Save a full conversation with messages, platform tag, and metadata | *"Save this conversation about Docker debugging"* |
+| `search_memory` | Full-text search across all stored conversations & messages | *"What did we discuss about authentication last week?"* |
+| `get_recent_conversations` | Retrieve latest conversations, optionally filtered by platform | *"Show me my recent Cursor conversations"* |
+| `save_knowledge` | Store a fact, preference, instruction, or decision | *"Remember: I use PostgreSQL 16 for all projects"* |
+| `search_knowledge` | Search knowledge entries by query, category, or tags | *"What are my coding preferences?"* |
+| `get_context_summary` | Get a combined overview of knowledge + conversations for a topic | *"Give me context on the payment system project"* |
+| `delete_memory` | Delete a specific conversation or knowledge entry by ID | *"Delete conversation abc-123"* |
+
+### 📊 MCP Resources
+
+| Resource URI | Description |
+|:-------------|:------------|
+| `memory://stats` | Database statistics — total conversations, messages, knowledge items, platform breakdown |
+| `memory://platforms` | List of all AI platforms that have stored data |
+
+---
+
+## 📁 Project Structure
+
+```
+LLM-MCP/
+├── docker-compose.yml       # Orchestrates PostgreSQL + MCP Server
+├── Dockerfile               # Python 3.12 slim container for MCP server
+├── .env                     # Environment variables (ports, credentials)
+├── requirements.txt         # Python dependencies
+├── server.py                # FastMCP server — 7 tools + 2 resources
+├── db.py                    # Async database layer (asyncpg + full-text search)
+├── test_client.py           # End-to-end verification script
+├── configs/
+│   └── README.md            # Per-platform configuration snippets
+└── README.md                # This file
+```
+
+---
+
+## ⚙️ Configuration
+
+All settings are in `.env`:
+
+| Variable | Default | Description |
+|:---------|:--------|:------------|
+| `POSTGRES_PORT` | `4569` | Host port for PostgreSQL |
+| `MCP_PORT` | `4040` | Host port for MCP server |
+| `POSTGRES_USER` | `mcp_user` | Database username |
+| `POSTGRES_PASSWORD` | `mcp_secure_pass_2026` | Database password |
+| `POSTGRES_DB` | `mcp_memory` | Database name |
+| `MCP_HOST` | `0.0.0.0` | MCP server bind address |
+
+### Accessing from Other Machines
+
+If your AI platform runs on a different machine, replace `localhost` with your server's IP:
+
+```
+http://192.168.100.69:4040/mcp
+```
+
+---
+
+## 🧪 Testing
+
+### Automated Test Client
+
+```bash
+# Install dependencies locally (if not using Docker)
+pip install mcp[cli] asyncpg python-dotenv
+
+# Run the full test suite
+python test_client.py
+```
+
+The test client exercises all 7 tools and 2 resources, verifying:
+- ✅ Conversation save & retrieval
+- ✅ Knowledge storage & search
+- ✅ Full-text search across messages
+- ✅ Context summary generation
+- ✅ Resource endpoints (stats, platforms)
+- ✅ Delete operations
+
+### Manual Verification
+
+```bash
+# Check PostgreSQL is accessible
+docker exec llm-mcp-postgres psql -U mcp_user -d mcp_memory -c "SELECT COUNT(*) FROM conversations;"
+
+# Check MCP server logs
+docker logs -f llm-mcp-server
+
+# Restart the stack
+docker compose restart
+```
+
+---
+
+## 📋 Docker Commands Reference
+
+| Command | Description |
+|:--------|:------------|
+| `docker compose up -d` | Start all services in background |
+| `docker compose down` | Stop all services |
+| `docker compose restart` | Restart all services |
+| `docker compose logs -f mcp-server` | Stream MCP server logs |
+| `docker compose ps` | Check service status |
+| `docker compose down -v` | Stop & **delete all data** ⚠️ |
+
+---
+
+## 🗄️ Database Schema
+
+Three core tables with full-text search indexes:
+
+```sql
+-- Stores conversation metadata (platform, title, summary, tags)
+conversations  →  one-to-many  →  messages (role, content)
+
+-- Stores standalone knowledge (facts, preferences, instructions)
+knowledge (category, content, tags, source_platform)
+```
+
+**Indexes:** GIN indexes on `conversations`, `messages`, and `knowledge` for fast full-text search via PostgreSQL's `to_tsvector` / `plainto_tsquery`.
+
+---
+
+## 🔒 Security Notes
+
+- By default, the server binds to `0.0.0.0` (accessible from your network)
+- For **local-only** use, set `MCP_HOST=127.0.0.1` in `.env`
+- Change the default `POSTGRES_PASSWORD` in production
+- Consider adding a reverse proxy (nginx/Caddy) with TLS for remote access
+
+---
+
+## 🗺️ Roadmap
+
+- [ ] Semantic search with `pgvector` embeddings
+- [ ] Automatic conversation summarization
+- [ ] Memory expiration / archival policies
+- [ ] Web dashboard for browsing stored memories
+- [ ] Authentication / API keys for multi-user support
+- [ ] Webhook notifications on new memories
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/semantic-search`)
+3. Commit your changes (`git commit -m 'Add semantic search with pgvector'`)
+4. Push to the branch (`git push origin feature/semantic-search`)
+5. Open a Pull Request
+
+---
+
+## 📄 License
+
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+
+---
+
+<p align="center">
+  <strong>Built with ❤️ for AI power users who use every tool available.</strong>
+  <br>
+  <em>Stop repeating yourself. Let your AIs share a brain.</em>
+</p>
