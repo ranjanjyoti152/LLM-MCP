@@ -12,7 +12,7 @@ Add to your MCP configuration (Settings → MCP Servers, or edit `mcp_config.jso
 {
   "mcpServers": {
     "llm-memory": {
-      "url": "http://localhost:4040/mcp"
+      "serverUrl": "http://localhost:4040/mcp"
     }
   }
 }
