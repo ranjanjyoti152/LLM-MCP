@@ -11,3 +11,4 @@ pgdata/
 .vscode/
 .idea/
 .cursor/
+mcp_client.py
