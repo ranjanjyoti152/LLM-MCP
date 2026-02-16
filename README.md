@@ -292,15 +292,169 @@ All settings are in `.env`:
 | `POSTGRES_DB` | `mcp_memory` | Database name |
 | `MCP_HOST` | `0.0.0.0` | MCP server bind address |
 
-### Accessing from Other Machines
+### Accessing from Other Machines (LAN)
 
-If your AI platform runs on a different machine, replace `localhost` with your server's IP:
+If your AI platform runs on a different machine on your local network, replace `localhost` with your server's IP:
 
 ```
 http://192.168.100.69:4040/mcp
 ```
 
 ---
+
+## 🌐 Custom Domain / Subdomain Deployment
+
+For access from **anywhere** (not just your local network), deploy behind a reverse proxy with a custom domain and SSL.
+
+### Live Example
+
+This project is deployed at:
+
+```
+https://mcp.smartnvr.shop/mcp
+```
+
+Use this URL in **any** AI platform config to connect to the shared memory server.
+
+### Step 1: DNS Configuration
+
+Point a subdomain to your server's public IP:
+
+| Record Type | Host | Value |
+|:------------|:-----|:------|
+| `A` | `mcp.smartnvr.shop` | `YOUR_SERVER_PUBLIC_IP` |
+
+### Step 2: Nginx Reverse Proxy
+
+Install Nginx and create a site config:
+
+```bash
+sudo apt install nginx -y
+sudo nano /etc/nginx/sites-available/mcp.smartnvr.shop
+```
+
+```nginx
+server {
+    listen 80;
+    server_name mcp.smartnvr.shop;
+
+    location / {
+        proxy_pass http://127.0.0.1:4040;
+        proxy_http_version 1.1;
+
+        # Required for Streamable HTTP + SSE
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # SSE: disable buffering for streaming responses
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }
+}
+```
+
+Enable the site:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/mcp.smartnvr.shop /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### Step 3: SSL with Let's Encrypt (Certbot)
+
+```bash
+sudo apt install certbot python3-certbot-nginx -y
+sudo certbot --nginx -d mcp.smartnvr.shop
+```
+
+Certbot will auto-configure HTTPS. Your endpoint is now:
+
+```
+https://mcp.smartnvr.shop/mcp
+```
+
+### Step 4: Update AI Platform Configs
+
+Once your domain is live, use the HTTPS URL in all platform configs:
+
+<details>
+<summary><strong>📋 All platform configs with custom domain</strong></summary>
+
+**Antigravity:**
+```json
+{
+  "mcpServers": {
+    "llm-memory": {
+      "url": "https://mcp.smartnvr.shop/mcp"
+    }
+  }
+}
+```
+
+**Cursor** (`.cursor/mcp.json`):
+```json
+{
+  "mcpServers": {
+    "llm-memory": {
+      "url": "https://mcp.smartnvr.shop/mcp"
+    }
+  }
+}
+```
+
+**VS Code + Copilot** (`.vscode/mcp.json`):
+```json
+{
+  "servers": {
+    "llm-memory": {
+      "type": "http",
+      "url": "https://mcp.smartnvr.shop/mcp"
+    }
+  }
+}
+```
+
+**Gemini CLI** (`~/.gemini/settings.json`):
+```json
+{
+  "mcpServers": {
+    "llm-memory": {
+      "httpUrl": "https://mcp.smartnvr.shop/mcp"
+    }
+  }
+}
+```
+
+**Claude Desktop:**
+```json
+{
+  "mcpServers": {
+    "llm-memory": {
+      "url": "https://mcp.smartnvr.shop/mcp"
+    }
+  }
+}
+```
+
+</details>
+
+### Using Your Own Domain
+
+To deploy on your own domain (e.g., `mcp.yourdomain.com`):
+
+1. **DNS**: Create an `A` record pointing `mcp.yourdomain.com` → your server IP
+2. **Nginx**: Copy the config above, replace `mcp.smartnvr.shop` with `mcp.yourdomain.com`
+3. **SSL**: Run `sudo certbot --nginx -d mcp.yourdomain.com`
+4. **Configs**: Replace the URL in all AI platform configs with `https://mcp.yourdomain.com/mcp`
+
+> **💡 Tip:** The `/mcp` path is the MCP Streamable HTTP endpoint. Always include it in the URL.
+
 
 ## 🧪 Testing
 
