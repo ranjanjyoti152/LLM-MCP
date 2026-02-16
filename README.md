@@ -215,17 +215,76 @@ Edit `~/.gemini/settings.json`:
 
 ### <img src="https://img.shields.io/badge/-Claude-D4A574?style=flat-square" alt="Claude"> Claude Desktop
 
+**Option A - Local (Best Performance)**
+If you are running the server on the same machine as Claude, connect directly via Docker.
+**This requires no extra tools and is the fastest method.**
+
 Go to **Settings → Developer → Edit Config** (`claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "llm-memory": {
-      "url": "http://localhost:4040/mcp"
+      "command": "docker",
+      "args": [
+        "exec",
+        "-i",
+        "llm-mcp-server",
+        "python",
+        "server.py",
+        "stdio"
+      ]
     }
   }
 }
 ```
+
+### <img src="https://img.shields.io/badge/-Claude-D4A574?style=flat-square" alt="Claude"> Claude Desktop
+
+**Option A - Local (Best Performance)**
+If you are running the server on the same machine as Claude, connect directly via Docker.
+**This requires no extra tools and is the fastest method.**
+
+Go to **Settings → Developer → Edit Config** (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "llm-memory": {
+      "command": "docker",
+      "args": [
+        "exec",
+        "-i",
+        "llm-mcp-server",
+        "python",
+        "server.py",
+        "stdio"
+      ]
+    }
+  }
+}
+```
+
+**Option B - Remote / HTTP (Universal)**
+To connect to a remote server (e.g., `https://mcp.smartnvr.shop/mcp`), use `supergateway` as the bridge. This requires Node.js installed locally.
+
+```json
+{
+  "mcpServers": {
+    "llm-memory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "supergateway",
+        "--sse",
+        "https://mcp.smartnvr.shop/mcp"
+      ]
+    }
+  }
+}
+```
+
+*(Note: SSH Tunnel is also a reliable alternative if you prefer not to use Node.js)*
 
 ---
 

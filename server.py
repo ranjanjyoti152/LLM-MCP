@@ -726,19 +726,44 @@ async def memory_platforms() -> str:
 
 async def main():
     """Initialize the database and start the MCP server."""
-    print("🧠 LLM Memory MCP Server starting...")
-    print(f"   Initializing database...")
+    import sys
 
-    await db.init_db()
-    print("   ✅ Database initialized")
+    # Check for stdio mode
+    if len(sys.argv) > 1 and sys.argv[1] == "stdio":
+        # Stdio mode (for local Docker exec)
+        await db.init_db()
+        await mcp.run_stdio_async()
+    else:
+        # HTTP mode (default)
+        print("🧠 LLM Memory MCP Server starting...")
+        print(f"   Initializing database...")
 
-    print(f"   🚀 Starting MCP server on {HOST}:{PORT}")
-    print(f"   📡 Streamable HTTP endpoint: http://{HOST}:{PORT}/mcp")
-    print(f"   🔗 Connect your AI platforms to: http://localhost:{PORT}/mcp")
-    print()
+        await db.init_db()
+        print("   ✅ Database initialized")
 
-    await mcp.run_streamable_http_async()
+        print(f"   🚀 Starting MCP server on {HOST}:{PORT}")
+        print(f"   📡 Streamable HTTP endpoint: http://{HOST}:{PORT}/mcp")
+        print(f"   🔗 Connect your AI platforms to: http://localhost:{PORT}/mcp")
+        print()
+
+        # Add CORS middleware to allow connections from any origin (e.g., web clients)
+        # FastMCP uses Starlette under the hood, so we can access .app
+        if hasattr(mcp, "_app") and mcp._app:
+             from starlette.middleware.cors import CORSMiddleware
+             mcp._app.add_middleware(
+                 CORSMiddleware,
+                 allow_origins=["*"],
+                 allow_credentials=True,
+                 allow_methods=["*"],
+                 allow_headers=["*"],
+             )
+
+        await mcp.run_streamable_http_async()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
+
