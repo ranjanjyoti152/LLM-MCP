@@ -299,17 +299,57 @@ Transport:  Streamable HTTP (POST/GET with optional SSE streaming)
 
 ---
 
-## 🛠️ Available MCP Tools
+## 🛠️ Available MCP Tools (25)
+
+### 💬 Conversations
 
 | Tool | Description | Example Use |
 |:-----|:------------|:------------|
 | `save_conversation` | Save a full conversation with messages, platform tag, and metadata | *"Save this conversation about Docker debugging"* |
 | `search_memory` | Full-text search across all stored conversations & messages | *"What did we discuss about authentication last week?"* |
 | `get_recent_conversations` | Retrieve latest conversations, optionally filtered by platform | *"Show me my recent Cursor conversations"* |
+| `get_conversation_by_id` | Retrieve a specific conversation by UUID, including all messages | *"Get conversation abc-123"* |
+| `add_message_to_conversation` | Append new messages to an existing conversation | *"Add this follow-up to our previous chat"* |
+| `tag_conversation` | Add or remove tags from a conversation | *"Tag this conversation as 'important'"* |
+| `delete_memory` | Delete a specific conversation or knowledge entry by ID | *"Delete conversation abc-123"* |
+
+### 🧠 Knowledge
+
+| Tool | Description | Example Use |
+|:-----|:------------|:------------|
 | `save_knowledge` | Store a fact, preference, instruction, or decision | *"Remember: I use PostgreSQL 16 for all projects"* |
 | `search_knowledge` | Search knowledge entries by query, category, or tags | *"What are my coding preferences?"* |
+| `list_all_knowledge` | List all stored knowledge with optional category filter and pagination | *"Show me all my preferences"* |
+| `get_knowledge_by_category` | Get all knowledge entries in a specific category | *"List all my instructions"* |
+| `get_related_knowledge` | Find knowledge entries related to a given one by content similarity | *"What's related to this fact?"* |
+| `update_knowledge` | Update an existing knowledge entry's content, category, or tags | *"Update my Python version preference"* |
+| `auto_extract_preferences` | Automatically extract & save preferences from conversation text with deduplication | *"Extract preferences from this chat"* |
 | `get_context_summary` | Get a combined overview of knowledge + conversations for a topic | *"Give me context on the payment system project"* |
-| `delete_memory` | Delete a specific conversation or knowledge entry by ID | *"Delete conversation abc-123"* |
+
+### 💾 Code Snippets
+
+| Tool | Description | Example Use |
+|:-----|:------------|:------------|
+| `save_code_snippet` | Save a reusable code snippet with language, tags, and description | *"Save this Docker compose template"* |
+| `search_code_snippets` | Search stored snippets by keyword, language, or tags | *"Find my Python async patterns"* |
+
+### 📂 Projects
+
+| Tool | Description | Example Use |
+|:-----|:------------|:------------|
+| `save_project_context` | Save or update project-level context (tech stack, repos, architecture) | *"Save context for the e-commerce project"* |
+| `get_project_context` | Retrieve all stored context for a project by name | *"What's the setup for project X?"* |
+
+### 🔧 Utility
+
+| Tool | Description | Example Use |
+|:-----|:------------|:------------|
+| `search_by_tags` | Search conversations, knowledge, and snippets by tags | *"Find everything tagged 'docker'"* |
+| `count_memories` | Get a quick count of all stored memory types | *"How much data is stored?"* |
+| `summarize_platform_activity` | Get detailed activity summary for a specific platform | *"Show my Antigravity stats"* |
+| `export_memories` | Export all stored data as JSON for backup | *"Back up all my memories"* |
+| `import_memories` | Import data from a JSON backup (with deduplication) | *"Restore from backup"* |
+| `clear_platform_data` | Delete ALL data for a specific platform ⚠️ | *"Clear all test_client data"* |
 
 ### 📊 MCP Resources
 
@@ -328,7 +368,7 @@ LLM-MCP/
 ├── Dockerfile               # Python 3.12 slim container for MCP server
 ├── .env                     # Environment variables (ports, credentials)
 ├── requirements.txt         # Python dependencies
-├── server.py                # FastMCP server — 7 tools + 2 resources
+├── server.py                # FastMCP server — 25 tools + 2 resources
 ├── db.py                    # Async database layer (asyncpg + full-text search)
 ├── test_client.py           # End-to-end verification script
 ├── configs/
