@@ -265,28 +265,7 @@ Go to **Settings → Developer → Edit Config** (`claude_desktop_config.json`):
 }
 ```
 
-**Option B - Remote / HTTP (Universal)**
-To connect to a remote server (e.g., `https://mcp.smartnvr.shop/mcp`), use `supergateway` as the bridge. This requires Node.js installed locally.
 
-```json
-{
-  "mcpServers": {
-    "llm-memory": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "supergateway",
-        "--sse",
-        "https://mcp.smartnvr.shop/mcp"
-      ]
-    }
-  }
-}
-```
-
-*(Note: SSH Tunnel is also a reliable alternative if you prefer not to use Node.js)*
-
----
 
 ### <img src="https://img.shields.io/badge/-ChatGPT-74AA9C?style=flat-square&logo=openai&logoColor=white" alt="ChatGPT"> ChatGPT / Other MCP Clients
 
