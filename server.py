@@ -34,7 +34,34 @@ mcp = FastMCP(
     stateless_http=True,
     instructions="""
     You are connected to a persistent memory server shared across all AI platforms.
-    Use these tools to save and retrieve conversations, knowledge, and context.
+    This server implements a multi-tier memory architecture:
+
+    ╔══════════════════════════════════════════════════════════════╗
+    ║  MEMORY TYPES                                                ║
+    ║                                                              ║
+    ║  1. SHORT-TERM MEMORY  — transient working context (auto-expires)
+    ║     save_short_term_memory / get_working_context             ║
+    ║     e.g., "user is debugging auth", "working on file X"     ║
+    ║                                                              ║
+    ║  2. SEMANTIC MEMORY    — long-term facts & knowledge         ║
+    ║     save_knowledge (memory_type='semantic')                  ║
+    ║     e.g., "user prefers Python", "API runs on port 8080"    ║
+    ║                                                              ║
+    ║  3. EPISODIC MEMORY    — conversation history & experiences  ║
+    ║     save_conversation (with importance/outcome)              ║
+    ║     e.g., past debugging sessions, design discussions        ║
+    ║                                                              ║
+    ║  4. PROCEDURAL MEMORY  — reusable code & how-to patterns    ║
+    ║     save_code_snippet                                        ║
+    ║     e.g., Docker configs, utility functions, patterns        ║
+    ╚══════════════════════════════════════════════════════════════╝
+
+    SMART RECALL:
+    - Use 'recall' as your PRIMARY retrieval tool — it searches ALL memory
+      types at once and ranks by relevance + recency + importance.
+    - Use 'get_working_context' at conversation start to load current context.
+    - Use specific search tools (search_memory, search_knowledge) only when
+      you need to target a single memory type.
 
     CRITICAL — AUTOMATIC PREFERENCE SAVING:
     You MUST proactively detect and save user preferences, facts, and decisions
@@ -51,18 +78,30 @@ mcp = FastMCP(
 
     HOW TO SAVE AUTOMATICALLY:
     - Use 'save_knowledge' with category='preference', 'fact', 'instruction', or 'decision'
+      and set importance (0.7+ for strong preferences, 0.5 for general facts)
     - OR use 'auto_extract_preferences' to batch-extract from a conversation
+    - For transient session context, use 'save_short_term_memory' instead
     - Always include relevant tags for searchability
     - Always set source_platform to your platform name
 
+    IMPORTANCE SCORING GUIDE:
+    - 0.9-1.0: Critical instructions, core preferences, key decisions
+    - 0.7-0.8: Strong preferences, important project facts
+    - 0.5-0.6: General knowledge, routine facts
+    - 0.3-0.4: Minor context, temporary notes (good for short-term memory)
+    - 0.1-0.2: Trivial, likely to be forgotten via decay
+
+    MEMORY LIFECYCLE:
+    - At conversation START: call 'get_working_context' and 'recall' for the topic
+    - DURING conversation: save short-term context, detect preferences
+    - At conversation END: save_conversation, auto_extract_preferences,
+      consolidate_memories (promotes important short-term → long-term)
+    - PERIODICALLY: cleanup_expired_memories, decay_memories
+
     OTHER GUIDELINES:
-    - When finishing a meaningful conversation, use 'save_conversation' to
-      preserve the exchange for future context.
-    - Before answering questions about past interactions, use 'search_memory'
-      or 'get_context_summary' to check if relevant information exists.
-    - When the user asks "what do you remember about X", use 'search_memory'
-      and 'search_knowledge' to find relevant past interactions.
+    - When the user asks "what do you remember about X", use 'recall' first.
     - Tag entries with the current platform name so cross-platform searches work.
+    - Set outcome ('success'/'failure'/'partial') on conversations for episodic recall.
     """,
 )
 
@@ -77,9 +116,12 @@ async def save_conversation(
     title: str = "",
     summary: str = "",
     tags: list[str] = [],
+    importance: float = 0.5,
+    outcome: str = "neutral",
+    emotional_context: str = "",
 ) -> str:
     """
-    Save a conversation to persistent memory.
+    Save a conversation to persistent memory (episodic memory).
 
     Args:
         platform: The AI platform name (e.g., 'antigravity', 'cursor', 'vscode', 'gemini', 'chatgpt')
@@ -87,6 +129,9 @@ async def save_conversation(
         title: A short title describing the conversation topic
         summary: A brief summary of what was discussed
         tags: Optional list of tags for categorization (e.g., ['python', 'debugging', 'docker'])
+        importance: How important this conversation is (0.0-1.0, default 0.5)
+        outcome: Conversation outcome — 'success', 'failure', 'neutral', 'partial' (default: 'neutral')
+        emotional_context: Emotional tone — 'frustrating', 'productive', 'exploratory', etc.
 
     Returns:
         JSON string with the saved conversation details including its ID.
@@ -97,6 +142,9 @@ async def save_conversation(
         title=title or None,
         summary=summary or None,
         tags=tags,
+        importance=importance,
+        outcome=outcome,
+        emotional_context=emotional_context,
     )
     return json.dumps(result, indent=2)
 
@@ -161,9 +209,12 @@ async def save_knowledge(
     content: str,
     tags: list[str] = [],
     source_platform: str = "",
+    memory_type: str = "semantic",
+    importance: float = 0.5,
+    confidence: float = 1.0,
 ) -> str:
     """
-    Save a knowledge entity — a fact, preference, instruction, or important information.
+    Save a knowledge entity — a fact, preference, instruction, or important information (long-term semantic memory).
 
     Use this to store things like:
     - User preferences ("I prefer dark mode", "I use Python 3.12")
@@ -176,6 +227,9 @@ async def save_knowledge(
         content: The knowledge content to store
         tags: Optional tags for categorization
         source_platform: The platform where this knowledge was learned
+        memory_type: Memory classification — 'semantic' (facts/concepts), 'episodic' (events), 'procedural' (how-to)
+        importance: How important this knowledge is (0.0-1.0, default 0.5). Higher = retained longer.
+        confidence: How confident we are in this knowledge (0.0-1.0, default 1.0)
 
     Returns:
         JSON string with the saved knowledge entry details.
@@ -185,6 +239,9 @@ async def save_knowledge(
         content=content,
         tags=tags,
         source_platform=source_platform.lower().strip() if source_platform else None,
+        memory_type=memory_type,
+        importance=importance,
+        confidence=confidence,
     )
     return json.dumps(result, indent=2)
 
@@ -705,6 +762,249 @@ async def get_project_context(
     return json.dumps(result, indent=2)
 
 
+# ─── Short-Term Memory Tools ─────────────────────────────────────────────────
+
+
+@mcp.tool()
+async def save_short_term_memory(
+    content: str,
+    context_key: str = "",
+    source_platform: str = "",
+    tags: list[str] = [],
+    ttl_minutes: int = 60,
+    importance: float = 0.3,
+) -> str:
+    """
+    Save a short-term / working memory entry that auto-expires.
+
+    Use this for transient context that is relevant NOW but won't matter later:
+    - "User is currently debugging authentication"
+    - "We are working on the payment module"
+    - "User's current file is server.py"
+    - "User wants responses in bullet points for this session"
+
+    Short-term memories automatically expire after ttl_minutes. Important ones
+    (importance >= 0.5) can be promoted to long-term via consolidate_memories.
+
+    Args:
+        content: The context/information to remember temporarily
+        context_key: Optional grouping key (e.g., 'current_task', 'session_prefs', 'debug_context')
+        source_platform: The platform this context came from
+        tags: Optional tags for categorization
+        ttl_minutes: How long to keep this memory (default: 60 minutes, max recommended: 1440 = 24h)
+        importance: How important (0.0-1.0). Memories >= 0.5 are eligible for consolidation.
+
+    Returns:
+        JSON string with the saved short-term memory details and expiry time.
+    """
+    result = await db.save_short_term_memory(
+        content=content,
+        context_key=context_key or None,
+        source_platform=source_platform.lower().strip() if source_platform else None,
+        tags=tags,
+        ttl_minutes=ttl_minutes,
+        importance=importance,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def get_working_context(
+    context_key: str = "",
+    source_platform: str = "",
+    limit: int = 20,
+) -> str:
+    """
+    Get all active (non-expired) short-term memories — the current working context.
+
+    Call this at the start of a conversation to load the user's current context:
+    what they're working on, recent decisions, session preferences, etc.
+
+    Args:
+        context_key: Optional — filter by context key (e.g., 'current_task')
+        source_platform: Optional — filter by platform
+        limit: Maximum entries to return (default: 20)
+
+    Returns:
+        JSON string with active short-term memory entries.
+    """
+    results = await db.get_active_short_term_memories(
+        context_key=context_key or None,
+        source_platform=source_platform.lower().strip() if source_platform else None,
+        limit=min(limit, 50),
+    )
+    return json.dumps({"active_count": len(results), "entries": results}, indent=2)
+
+
+# ─── Smart Recall Tool ──────────────────────────────────────────────────────
+
+
+@mcp.tool()
+async def recall(
+    query: str,
+    platform: str = "",
+    memory_types: list[str] = [],
+    limit: int = 15,
+) -> str:
+    """
+    🧠 Unified smart recall — searches ALL memory stores at once with intelligent ranking.
+
+    This is the BEST tool for retrieving relevant memories. It searches across:
+    - Short-term memory (current working context)
+    - Knowledge (long-term semantic memory — facts, preferences, instructions)
+    - Conversations (episodic memory — past interactions)
+    - Code snippets (procedural memory — how to do things)
+
+    Results are ranked by a composite score blending:
+    - Text relevance (40%) — how well content matches the query
+    - Recency (30%) — newer memories score higher
+    - Importance (30%) — more important memories score higher
+
+    Accessed memories automatically get their access_count incremented,
+    which protects them from future importance decay.
+
+    Args:
+        query: What to search for (natural language or keywords)
+        platform: Optional — filter to a specific platform
+        memory_types: Optional — limit to specific types: 'short_term', 'knowledge', 'episodic', 'procedural'
+        limit: Maximum total results across all types (default: 15)
+
+    Returns:
+        JSON string with ranked results from all memory stores.
+    """
+    result = await db.recall(
+        query=query,
+        platform=platform.lower().strip() if platform else None,
+        memory_types=memory_types if memory_types else None,
+        limit=min(limit, 50),
+    )
+    return json.dumps(result, indent=2)
+
+
+# ─── Memory Maintenance Tools ───────────────────────────────────────────────
+
+
+@mcp.tool()
+async def consolidate_memories(
+    source_platform: str = "",
+) -> str:
+    """
+    Promote important short-term memories into long-term knowledge.
+
+    Finds all non-expired short-term memories with importance >= 0.5 and
+    saves each as a permanent knowledge entry. The short-term entry is
+    then marked as consolidated.
+
+    Call this periodically or at the end of a work session to preserve
+    important transient context permanently.
+
+    Args:
+        source_platform: Optional — only consolidate memories from this platform
+
+    Returns:
+        JSON string with count of consolidated entries and their details.
+    """
+    result = await db.consolidate_memories(
+        source_platform=source_platform.lower().strip() if source_platform else None,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def cleanup_expired_memories() -> str:
+    """
+    Delete all expired short-term memories and expired knowledge entries.
+
+    Frees up storage by removing memories that have passed their expiry time.
+    Call this periodically for housekeeping.
+
+    Returns:
+        JSON string with counts of deleted entries.
+    """
+    result = await db.cleanup_expired_memories()
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def decay_memories(
+    decay_factor: float = 0.95,
+) -> str:
+    """
+    Apply time-based importance decay to all memories.
+
+    Gradually reduces importance scores of memories that haven't been
+    accessed recently. This ensures that frequently-used memories stay
+    prominent while rarely-used ones fade.
+
+    Formula: new_importance = importance × decay_factor ^ (days_since_access / 30)
+    Minimum importance is clamped at 0.05 so memories never vanish completely.
+
+    Memories that are accessed (via recall or search) get their access_count
+    incremented, which protects them from decay.
+
+    Args:
+        decay_factor: Rate of decay (0.0-1.0, default 0.95). Lower = faster decay.
+
+    Returns:
+        JSON string with count of affected entries.
+    """
+    result = await db.decay_memories(max(0.5, min(1.0, decay_factor)))
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def memory_health() -> str:
+    """
+    Get a comprehensive health overview of the entire memory system.
+
+    Shows statistics broken down by memory type:
+    - Episodic memory: conversation/message counts, avg importance
+    - Semantic memory: knowledge entries, consolidated count, avg importance
+    - Short-term memory: active, expired, consolidated, expiring soon
+    - Procedural memory: code snippet count
+
+    Use this to understand the state of the memory system and decide
+    whether maintenance (consolidation, cleanup, decay) is needed.
+
+    Returns:
+        JSON string with detailed memory health statistics.
+    """
+    result = await db.get_memory_health()
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def reflect_and_compress(
+    older_than_days: int = 7,
+    min_conversations: int = 3,
+    platform: str = "",
+) -> str:
+    """
+    Compress old conversations into dense knowledge summaries (memory reflection).
+
+    Finds clusters of old conversations, extracts key takeaways, and saves
+    them as high-importance knowledge entries. Original conversations are
+    marked as 'compressed' but NOT deleted.
+
+    This is like your brain's memory consolidation during sleep — it turns
+    many scattered experiences into compact, retrievable wisdom.
+
+    Args:
+        older_than_days: Only compress conversations older than this (default: 7)
+        min_conversations: Minimum conversations needed to trigger compression (default: 3)
+        platform: Optional — only compress conversations from this platform
+
+    Returns:
+        JSON string with compression results.
+    """
+    result = await db.reflect_and_compress(
+        older_than_days=older_than_days,
+        min_conversations=min_conversations,
+        platform=platform.lower().strip() if platform else None,
+    )
+    return json.dumps(result, indent=2)
+
+
 # ─── MCP Resources ───────────────────────────────────────────────────────────
 
 
@@ -720,6 +1020,52 @@ async def memory_platforms() -> str:
     """Get list of all AI platforms that have stored conversations."""
     platforms = await db.get_platforms()
     return json.dumps({"platforms": platforms}, indent=2)
+
+
+@mcp.resource("memory://health")
+async def memory_health_resource() -> str:
+    """Get comprehensive memory system health — episodic, semantic, short-term, and procedural stores."""
+    result = await db.get_memory_health()
+    return json.dumps(result, indent=2)
+
+
+# ─── Background Memory Maintenance ──────────────────────────────────────────
+
+MAINTENANCE_INTERVAL = int(os.environ.get("MAINTENANCE_INTERVAL_MINUTES", "30"))
+
+async def _memory_maintenance_loop():
+    """Background task that automatically maintains the memory system.
+
+    Runs every MAINTENANCE_INTERVAL_MINUTES (default: 30) and performs:
+    1. Cleanup expired short-term memories and knowledge
+    2. Consolidate important short-term memories → long-term
+    3. Apply importance decay to old, unaccessed memories
+    4. Compress old conversations into dense knowledge (weekly)
+    """
+    cycle = 0
+    while True:
+        await asyncio.sleep(MAINTENANCE_INTERVAL * 60)
+        cycle += 1
+        try:
+            # Every cycle: cleanup + consolidate
+            cleanup = await db.cleanup_expired_memories()
+            consolidate = await db.consolidate_memories()
+            print(f"   🔄 Maintenance cycle {cycle}: "
+                  f"cleaned {cleanup['total_deleted']}, "
+                  f"consolidated {consolidate['consolidated']}")
+
+            # Every 6 cycles (~3h): apply decay
+            if cycle % 6 == 0:
+                decay = await db.decay_memories()
+                print(f"   📉 Decay applied: {decay['knowledge_updated']}K + {decay['conversations_updated']}C entries")
+
+            # Every 48 cycles (~24h): compress old conversations
+            if cycle % 48 == 0:
+                compress = await db.reflect_and_compress()
+                print(f"   🗜️  Compression: {compress.get('compressed_entries', 0)} clusters compressed")
+
+        except Exception as e:
+            print(f"   ⚠️  Maintenance error: {e}")
 
 
 # ─── Server Entry Point ─────────────────────────────────────────────────────
@@ -740,6 +1086,10 @@ async def main():
 
         await db.init_db()
         print("   ✅ Database initialized")
+
+        # Start background maintenance
+        asyncio.create_task(_memory_maintenance_loop())
+        print(f"   🔄 Background maintenance every {MAINTENANCE_INTERVAL}min")
 
         print(f"   🚀 Starting MCP server on {HOST}:{PORT}")
         print(f"   📡 Streamable HTTP endpoint: http://{HOST}:{PORT}/mcp")

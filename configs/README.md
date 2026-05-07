@@ -101,22 +101,22 @@ Transport: **Streamable HTTP** (POST/GET with optional SSE streaming)
 
 ---
 
-## Available Tools (25)
+## Available Tools (33)
 
 Once connected, these tools will be available to your AI assistant:
 
 | Tool | What it does |
 |------|-------------|
-| **Conversations** | |
-| `save_conversation` | Save a conversation with messages, tags, and metadata |
+| **Conversations (Episodic Memory)** | |
+| `save_conversation` | Save a conversation with importance, outcome, emotional context |
 | `search_memory` | Full-text search across all stored conversations |
 | `get_recent_conversations` | Get latest conversations (optional platform filter) |
 | `get_conversation_by_id` | Retrieve a specific conversation by UUID |
 | `add_message_to_conversation` | Append messages to an existing conversation |
 | `tag_conversation` | Add or remove tags from a conversation |
 | `delete_memory` | Remove a specific conversation or knowledge entry |
-| **Knowledge** | |
-| `save_knowledge` | Store facts, preferences, instructions, project info |
+| **Knowledge (Semantic Memory)** | |
+| `save_knowledge` | Store facts/preferences with memory_type, importance, confidence |
 | `search_knowledge` | Search stored knowledge by query, category, or tags |
 | `list_all_knowledge` | List all knowledge with optional category filter |
 | `get_knowledge_by_category` | Get entries in a specific category |
@@ -124,7 +124,18 @@ Once connected, these tools will be available to your AI assistant:
 | `update_knowledge` | Update content, category, or tags on an entry |
 | `auto_extract_preferences` | Auto-extract & save preferences from conversation text |
 | `get_context_summary` | Get combined context summary for a topic |
-| **Code Snippets** | |
+| **Short-Term Memory** | |
+| `save_short_term_memory` | Save transient context with TTL (auto-expires) |
+| `get_working_context` | Get all active short-term memories |
+| **Smart Recall** | |
+| `recall` | Hybrid search (vector + full-text) across ALL memory stores |
+| **Memory Maintenance** | |
+| `consolidate_memories` | Promote important short-term → long-term knowledge |
+| `cleanup_expired_memories` | Delete expired short-term and knowledge entries |
+| `decay_memories` | Apply time-based importance decay |
+| `reflect_and_compress` | Compress old conversations into dense knowledge |
+| `memory_health` | Comprehensive memory system health overview |
+| **Code Snippets (Procedural Memory)** | |
 | `save_code_snippet` | Save a reusable code snippet with language tag |
 | `search_code_snippets` | Search snippets by keyword, language, or tags |
 | **Projects** | |

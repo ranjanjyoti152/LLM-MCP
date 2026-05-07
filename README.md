@@ -50,23 +50,30 @@ Every time you switch platforms, you start from scratch. Your preferences, proje
     │              Streamable HTTP  (:4040/mcp)                   │
     │  ┌───────────────────────────────────────────────────────┐  │
     │  │             🧠 LLM Memory MCP Server                  │  │
+    │  │                                                       │  │
     │  │  ┌──────────────────┐  ┌────────────────────────┐     │  │
-    │  │  │   7 MCP Tools    │  │    2 MCP Resources     │     │  │
-    │  │  │  save, search,   │  │  stats, platforms      │     │  │
-    │  │  │  retrieve, delete│  │                        │     │  │
+    │  │  │  33 MCP Tools    │  │    3 MCP Resources     │     │  │
+    │  │  │  save, recall,   │  │  stats, platforms,     │     │  │
+    │  │  │  consolidate,    │  │  health                │     │  │
+    │  │  │  compress, decay │  │                        │     │  │
     │  │  └────────┬─────────┘  └───────────┬────────────┘     │  │
+    │  │           │    Background Scheduler (auto-maintain)    │  │
     │  └───────────┼────────────────────────┼──────────────────┘  │
     └──────────────┼────────────────────────┼─────────────────────┘
                    │                        │
                    ▼                        ▼
     ┌─────────────────────────────────────────────────────────────┐
-    │                 PostgreSQL 16  (:4569)                       │
-    │  ┌────────────────┐ ┌──────────┐ ┌───────────────────┐      │
-    │  │ conversations   │ │ messages │ │    knowledge      │      │
-    │  │ (platform, tags)│ │ (role,   │ │ (category, tags,  │      │
-    │  │                 │ │  content)│ │  source_platform) │      │
-    │  └────────────────┘ └──────────┘ └───────────────────┘      │
-    │              Full-Text Search Indexes (GIN)                  │
+    │           PostgreSQL 16 + pgvector  (:4569)                 │
+    │                                                             │
+    │  ┌──────────────┐ ┌──────────────┐ ┌────────────────┐       │
+    │  │  Episodic     │ │  Semantic    │ │  Short-Term    │       │
+    │  │  (convos +    │ │  (knowledge  │ │  (TTL, auto-   │       │
+    │  │   messages)   │ │   + vectors) │ │   expire)      │       │
+    │  └──────────────┘ └──────────────┘ └────────────────┘       │
+    │  ┌──────────────┐                                           │
+    │  │  Procedural   │  Full-Text (GIN) + Vector (HNSW) Indexes │
+    │  │  (code snips) │  Hybrid Search: semantic + keyword       │
+    │  └──────────────┘                                           │
     └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -93,33 +100,32 @@ Every time you switch platforms, you start from scratch. Your preferences, proje
 - [Docker](https://docs.docker.com/get-docker/) & [Docker Compose](https://docs.docker.com/compose/install/) installed
 - Git (optional, for cloning)
 
-### 1. Clone & Start
+### 1. One-Command Setup (Recommended)
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/LLM-MCP.git
 cd LLM-MCP
-
-# Start PostgreSQL + MCP Server
-docker compose up -d
+./setup.sh
 ```
 
-### 2. Verify
+The setup script will:
+- Start PostgreSQL (with pgvector) + MCP Server
+- Wait for health checks
+- Auto-detect Cursor, VS Code, Gemini CLI, Claude, Windsurf
+- Generate config files for each detected platform
+
+### 2. Manual Start (Alternative)
 
 ```bash
-# Check containers are healthy
-docker compose ps
+docker compose up -d --build
+```
 
-# Expected output:
+### 3. Verify
+
+```bash
+docker compose ps
 # llm-mcp-postgres   ... Up (healthy)   0.0.0.0:4569->5432/tcp
 # llm-mcp-server     ... Up             0.0.0.0:4040->4040/tcp
-```
-
-### 3. Connect Your AI Platform
-
-Add the MCP server URL to your platform's config (see [detailed guides below](#-platform-configuration)):
-
-```
-http://localhost:4040/mcp
 ```
 
 ### 4. Test It!
@@ -431,17 +437,23 @@ docker compose restart
 
 ## 🗄️ Database Schema
 
-Three core tables with full-text search indexes:
+Five core tables with hybrid search indexes:
 
 ```sql
--- Stores conversation metadata (platform, title, summary, tags)
+-- Episodic memory (importance, outcome, emotional_context, embedding)
 conversations  →  one-to-many  →  messages (role, content)
 
--- Stores standalone knowledge (facts, preferences, instructions)
+-- Semantic memory (memory_type, importance, confidence, embedding, expires_at)
 knowledge (category, content, tags, source_platform)
+
+-- Short-term / working memory (auto-expires via TTL, consolidation support)
+short_term_memory (content, context_key, importance, expires_at, consolidated)
+
+-- Procedural memory (importance, embedding)
+code_snippets (title, language, code, description)
 ```
 
-**Indexes:** GIN indexes on `conversations`, `messages`, and `knowledge` for fast full-text search via PostgreSQL's `to_tsvector` / `plainto_tsquery`.
+**Indexes:** GIN full-text indexes + HNSW vector indexes (pgvector) for hybrid semantic + keyword search. Importance and expiry indexes for efficient maintenance.
 
 ---
 
@@ -456,12 +468,18 @@ knowledge (category, content, tags, source_platform)
 
 ## 🗺️ Roadmap
 
-- [ ] Semantic search with `pgvector` embeddings
-- [ ] Automatic conversation summarization
-- [ ] Memory expiration / archival policies
+- [x] ~~Semantic search with `pgvector` embeddings~~ ✅ Done!
+- [x] ~~Automatic conversation summarization (memory compression)~~ ✅ Done!
+- [x] ~~Memory expiration / archival policies~~ ✅ Done!
+- [x] ~~Background memory maintenance scheduler~~ ✅ Done!
+- [x] ~~Multi-tier memory (short-term, semantic, episodic, procedural)~~ ✅ Done!
+- [x] ~~Importance scoring & time-based decay~~ ✅ Done!
+- [x] ~~One-command auto-setup script~~ ✅ Done!
 - [ ] Web dashboard for browsing stored memories
 - [ ] Authentication / API keys for multi-user support
 - [ ] Webhook notifications on new memories
+- [ ] Memory conflict resolution across platforms
+- [ ] Memory versioning & change tracking
 
 ---
 

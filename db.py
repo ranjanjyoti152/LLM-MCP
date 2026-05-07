@@ -7,14 +7,19 @@ import asyncpg
 import os
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+
+import embeddings as emb
 
 
 _pool: Optional[asyncpg.Pool] = None
 
 SCHEMA_SQL = """
--- Conversations table
+-- Enable pgvector extension
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Conversations table (episodic memory)
 CREATE TABLE IF NOT EXISTS conversations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     platform VARCHAR(50) NOT NULL,
@@ -22,6 +27,12 @@ CREATE TABLE IF NOT EXISTS conversations (
     summary TEXT,
     tags TEXT[] DEFAULT '{}',
     metadata JSONB DEFAULT '{}',
+    importance REAL DEFAULT 0.5,
+    outcome VARCHAR(50) DEFAULT 'neutral',
+    emotional_context VARCHAR(100) DEFAULT '',
+    access_count INTEGER DEFAULT 0,
+    last_accessed_at TIMESTAMPTZ,
+    embedding vector(512),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -36,20 +47,43 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Knowledge entities
+-- Knowledge entities (long-term semantic memory)
 CREATE TABLE IF NOT EXISTS knowledge (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     category VARCHAR(100) NOT NULL,
     content TEXT NOT NULL,
+    memory_type VARCHAR(20) DEFAULT 'semantic',
     tags TEXT[] DEFAULT '{}',
     source_platform VARCHAR(50),
     source_conversation_id UUID REFERENCES conversations(id) ON DELETE SET NULL,
     metadata JSONB DEFAULT '{}',
+    importance REAL DEFAULT 0.5,
+    confidence REAL DEFAULT 1.0,
+    access_count INTEGER DEFAULT 0,
+    last_accessed_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
+    embedding vector(512),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Code snippets table
+-- Short-term / working memory (auto-expires)
+CREATE TABLE IF NOT EXISTS short_term_memory (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    content TEXT NOT NULL,
+    context_key VARCHAR(200),
+    source_platform VARCHAR(50),
+    tags TEXT[] DEFAULT '{}',
+    metadata JSONB DEFAULT '{}',
+    importance REAL DEFAULT 0.3,
+    expires_at TIMESTAMPTZ NOT NULL,
+    consolidated BOOLEAN DEFAULT FALSE,
+    consolidated_into UUID,
+    embedding vector(512),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Code snippets table (procedural memory)
 CREATE TABLE IF NOT EXISTS code_snippets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title VARCHAR(500) NOT NULL,
@@ -59,6 +93,9 @@ CREATE TABLE IF NOT EXISTS code_snippets (
     tags TEXT[] DEFAULT '{}',
     source_platform VARCHAR(50),
     metadata JSONB DEFAULT '{}',
+    importance REAL DEFAULT 0.5,
+    access_count INTEGER DEFAULT 0,
+    embedding vector(512),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -92,10 +129,26 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_category
     ON knowledge(category);
 CREATE INDEX IF NOT EXISTS idx_knowledge_tags
     ON knowledge USING GIN (tags);
+CREATE INDEX IF NOT EXISTS idx_knowledge_memory_type
+    ON knowledge(memory_type);
+CREATE INDEX IF NOT EXISTS idx_knowledge_importance
+    ON knowledge(importance DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_expires
+    ON knowledge(expires_at) WHERE expires_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_conversations_tags
     ON conversations USING GIN (tags);
+CREATE INDEX IF NOT EXISTS idx_conversations_importance
+    ON conversations(importance DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation
     ON messages(conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_short_term_search
+    ON short_term_memory USING GIN (to_tsvector('english', content));
+CREATE INDEX IF NOT EXISTS idx_short_term_expires
+    ON short_term_memory(expires_at);
+CREATE INDEX IF NOT EXISTS idx_short_term_context_key
+    ON short_term_memory(context_key);
+CREATE INDEX IF NOT EXISTS idx_short_term_consolidated
+    ON short_term_memory(consolidated) WHERE NOT consolidated;
 CREATE INDEX IF NOT EXISTS idx_code_snippets_search
     ON code_snippets USING GIN (to_tsvector('english', coalesce(title,'') || ' ' || coalesce(description,'') || ' ' || code));
 CREATE INDEX IF NOT EXISTS idx_code_snippets_language
@@ -106,6 +159,58 @@ CREATE INDEX IF NOT EXISTS idx_projects_search
     ON projects USING GIN (to_tsvector('english', coalesce(name,'') || ' ' || coalesce(description,'')));
 CREATE INDEX IF NOT EXISTS idx_projects_name
     ON projects(name);
+
+-- Vector similarity indexes (HNSW for fast approximate nearest neighbor)
+CREATE INDEX IF NOT EXISTS idx_knowledge_embedding
+    ON knowledge USING hnsw (embedding vector_cosine_ops) WHERE embedding IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_conversations_embedding
+    ON conversations USING hnsw (embedding vector_cosine_ops) WHERE embedding IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_short_term_embedding
+    ON short_term_memory USING hnsw (embedding vector_cosine_ops) WHERE embedding IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_code_snippets_embedding
+    ON code_snippets USING hnsw (embedding vector_cosine_ops) WHERE embedding IS NOT NULL;
+"""
+
+# Migration SQL for existing databases — adds new columns safely
+MIGRATION_SQL = """
+-- Add new columns to conversations if not present
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS importance REAL DEFAULT 0.5;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS outcome VARCHAR(50) DEFAULT 'neutral';
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS emotional_context VARCHAR(100) DEFAULT '';
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS access_count INTEGER DEFAULT 0;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS last_accessed_at TIMESTAMPTZ;
+
+-- Add new columns to knowledge if not present
+ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS memory_type VARCHAR(20) DEFAULT 'semantic';
+ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS importance REAL DEFAULT 0.5;
+ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS confidence REAL DEFAULT 1.0;
+ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS access_count INTEGER DEFAULT 0;
+ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS last_accessed_at TIMESTAMPTZ;
+ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+
+-- Add new columns to code_snippets if not present
+ALTER TABLE code_snippets ADD COLUMN IF NOT EXISTS importance REAL DEFAULT 0.5;
+ALTER TABLE code_snippets ADD COLUMN IF NOT EXISTS access_count INTEGER DEFAULT 0;
+
+-- Add embedding columns (pgvector)
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS embedding vector(512);
+ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS embedding vector(512);
+ALTER TABLE code_snippets ADD COLUMN IF NOT EXISTS embedding vector(512);
+
+-- Create short_term_memory table if not present (handled by SCHEMA_SQL but adding safety)
+CREATE TABLE IF NOT EXISTS short_term_memory (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    content TEXT NOT NULL,
+    context_key VARCHAR(200),
+    source_platform VARCHAR(50),
+    tags TEXT[] DEFAULT '{}',
+    metadata JSONB DEFAULT '{}',
+    importance REAL DEFAULT 0.3,
+    expires_at TIMESTAMPTZ NOT NULL,
+    consolidated BOOLEAN DEFAULT FALSE,
+    consolidated_into UUID,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 """
 
 
@@ -119,10 +224,18 @@ async def get_pool() -> asyncpg.Pool:
 
 
 async def init_db():
-    """Initialize the database schema."""
+    """Initialize the database schema and run migrations for existing databases."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(SCHEMA_SQL)
+        # Run migrations to add new columns to existing tables safely
+        for statement in MIGRATION_SQL.strip().split(';'):
+            statement = statement.strip()
+            if statement and not statement.startswith('--'):
+                try:
+                    await conn.execute(statement)
+                except Exception:
+                    pass  # Column/table already exists or other safe-to-skip error
 
 
 async def close_db():
@@ -142,15 +255,23 @@ async def save_conversation(
     summary: Optional[str] = None,
     tags: Optional[list[str]] = None,
     metadata: Optional[dict] = None,
+    importance: float = 0.5,
+    outcome: str = "neutral",
+    emotional_context: str = "",
 ) -> dict:
-    """Save a conversation with its messages."""
+    """Save a conversation with its messages (episodic memory)."""
     pool = await get_pool()
+    # Generate embedding from title + summary
+    embed_text = f"{title or ''} {summary or ''}"
+    vec = await emb.get_embedding(embed_text) if embed_text.strip() else None
+    vec_str = str(vec) if vec else None
+
     async with pool.acquire() as conn:
         async with conn.transaction():
             row = await conn.fetchrow(
                 """
-                INSERT INTO conversations (platform, title, summary, tags, metadata)
-                VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO conversations (platform, title, summary, tags, metadata, importance, outcome, emotional_context, embedding)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 RETURNING id, created_at
                 """,
                 platform,
@@ -158,6 +279,10 @@ async def save_conversation(
                 summary,
                 tags or [],
                 json.dumps(metadata or {}),
+                max(0.0, min(1.0, importance)),
+                outcome,
+                emotional_context,
+                vec_str,
             )
             conv_id = row["id"]
 
@@ -178,6 +303,8 @@ async def save_conversation(
                 "platform": platform,
                 "title": title,
                 "message_count": len(messages),
+                "importance": importance,
+                "outcome": outcome,
                 "created_at": row["created_at"].isoformat(),
             }
 
@@ -300,9 +427,15 @@ async def save_knowledge(
     source_platform: Optional[str] = None,
     source_conversation_id: Optional[str] = None,
     metadata: Optional[dict] = None,
+    memory_type: str = "semantic",
+    importance: float = 0.5,
+    confidence: float = 1.0,
 ) -> dict:
-    """Save a knowledge entity."""
+    """Save a knowledge entity (long-term semantic memory)."""
     pool = await get_pool()
+    vec = await emb.get_embedding(content)
+    vec_str = str(vec) if vec else None
+
     async with pool.acquire() as conn:
         conv_id = None
         if source_conversation_id:
@@ -314,8 +447,9 @@ async def save_knowledge(
 
         row = await conn.fetchrow(
             """
-            INSERT INTO knowledge (category, content, tags, source_platform, source_conversation_id, metadata)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO knowledge (category, content, tags, source_platform, source_conversation_id, metadata,
+                                   memory_type, importance, confidence, embedding)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING id, created_at
             """,
             category,
@@ -324,11 +458,17 @@ async def save_knowledge(
             source_platform,
             conv_id,
             json.dumps(metadata or {}),
+            memory_type,
+            max(0.0, min(1.0, importance)),
+            max(0.0, min(1.0, confidence)),
+            vec_str,
         )
         return {
             "id": str(row["id"]),
             "category": category,
             "content": content[:100] + "..." if len(content) > 100 else content,
+            "memory_type": memory_type,
+            "importance": importance,
             "created_at": row["created_at"].isoformat(),
         }
 
@@ -945,6 +1085,7 @@ async def count_memories() -> dict:
             "conversations": await conn.fetchval("SELECT COUNT(*) FROM conversations"),
             "messages": await conn.fetchval("SELECT COUNT(*) FROM messages"),
             "knowledge": await conn.fetchval("SELECT COUNT(*) FROM knowledge"),
+            "short_term_memory": await conn.fetchval("SELECT COUNT(*) FROM short_term_memory WHERE expires_at > NOW() AND consolidated = FALSE"),
             "code_snippets": await conn.fetchval("SELECT COUNT(*) FROM code_snippets"),
             "projects": await conn.fetchval("SELECT COUNT(*) FROM projects"),
         }
@@ -1044,10 +1185,14 @@ async def save_code_snippet(
 ) -> dict:
     """Save a reusable code snippet."""
     pool = await get_pool()
+    embed_text = f"{title} {description or ''} {language}"
+    vec = await emb.get_embedding(embed_text)
+    vec_str = str(vec) if vec else None
+
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "INSERT INTO code_snippets (title, language, code, description, tags, source_platform) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, created_at",
-            title, language.lower(), code, description, tags or [], source_platform,
+            "INSERT INTO code_snippets (title, language, code, description, tags, source_platform, embedding) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, created_at",
+            title, language.lower(), code, description, tags or [], source_platform, vec_str,
         )
         return {"id": str(row["id"]), "title": title, "language": language, "created_at": row["created_at"].isoformat()}
 
@@ -1139,4 +1284,620 @@ async def get_project_context(name: str) -> Optional[dict]:
             "source_platform": row["source_platform"],
             "created_at": row["created_at"].isoformat(),
             "updated_at": row["updated_at"].isoformat(),
+        }
+
+
+# ─── Short-Term Memory Operations ───────────────────────────────────────────
+
+
+async def save_short_term_memory(
+    content: str,
+    context_key: Optional[str] = None,
+    source_platform: Optional[str] = None,
+    tags: Optional[list[str]] = None,
+    ttl_minutes: int = 60,
+    importance: float = 0.3,
+) -> dict:
+    """Save a short-term / working memory entry with a TTL.
+
+    Short-term memories auto-expire after ttl_minutes. They represent
+    transient context like 'user is currently debugging auth', 'we are
+    working on file X', etc.
+    """
+    pool = await get_pool()
+    vec = await emb.get_embedding(content)
+    vec_str = str(vec) if vec else None
+
+    async with pool.acquire() as conn:
+        expires = datetime.now(timezone.utc) + timedelta(minutes=max(1, ttl_minutes))
+        row = await conn.fetchrow(
+            """
+            INSERT INTO short_term_memory (content, context_key, source_platform, tags, importance, expires_at, embedding)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING id, created_at, expires_at
+            """,
+            content,
+            context_key,
+            source_platform,
+            tags or [],
+            max(0.0, min(1.0, importance)),
+            expires,
+            vec_str,
+        )
+        return {
+            "id": str(row["id"]),
+            "content": content[:100] + "..." if len(content) > 100 else content,
+            "context_key": context_key,
+            "ttl_minutes": ttl_minutes,
+            "expires_at": row["expires_at"].isoformat(),
+            "created_at": row["created_at"].isoformat(),
+        }
+
+
+async def get_active_short_term_memories(
+    context_key: Optional[str] = None,
+    source_platform: Optional[str] = None,
+    limit: int = 20,
+) -> list[dict]:
+    """Get all non-expired, non-consolidated short-term memories."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        sql = """
+            SELECT id, content, context_key, source_platform, tags, importance, expires_at, created_at
+            FROM short_term_memory
+            WHERE expires_at > NOW() AND consolidated = FALSE
+        """
+        params = []
+        param_idx = 1
+
+        if context_key:
+            sql += f" AND context_key = ${param_idx}"
+            params.append(context_key)
+            param_idx += 1
+
+        if source_platform:
+            sql += f" AND source_platform = ${param_idx}"
+            params.append(source_platform)
+            param_idx += 1
+
+        sql += f" ORDER BY importance DESC, created_at DESC LIMIT ${param_idx}"
+        params.append(limit)
+
+        rows = await conn.fetch(sql, *params)
+        return [
+            {
+                "id": str(r["id"]),
+                "content": r["content"],
+                "context_key": r["context_key"],
+                "source_platform": r["source_platform"],
+                "tags": r["tags"],
+                "importance": float(r["importance"]),
+                "expires_at": r["expires_at"].isoformat(),
+                "created_at": r["created_at"].isoformat(),
+            }
+            for r in rows
+        ]
+
+
+async def search_short_term_memory(
+    query: str,
+    limit: int = 10,
+) -> list[dict]:
+    """Full-text search across active short-term memories."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, content, context_key, source_platform, tags, importance, expires_at, created_at,
+                   ts_rank(to_tsvector('english', content), plainto_tsquery('english', $1)) AS rank
+            FROM short_term_memory
+            WHERE expires_at > NOW() AND consolidated = FALSE
+              AND to_tsvector('english', content) @@ plainto_tsquery('english', $1)
+            ORDER BY rank DESC, importance DESC LIMIT $2
+            """,
+            query, limit,
+        )
+        return [
+            {
+                "id": str(r["id"]),
+                "content": r["content"],
+                "context_key": r["context_key"],
+                "importance": float(r["importance"]),
+                "relevance": float(r["rank"]),
+                "expires_at": r["expires_at"].isoformat(),
+            }
+            for r in rows
+        ]
+
+
+# ─── Memory Consolidation ───────────────────────────────────────────────────
+
+
+async def consolidate_memories(
+    source_platform: Optional[str] = None,
+) -> dict:
+    """Promote important short-term memories into long-term knowledge.
+
+    Finds non-expired, non-consolidated short-term memories with
+    importance >= 0.5, saves each as a long-term knowledge entry,
+    and marks the short-term entry as consolidated.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        sql = """
+            SELECT id, content, context_key, source_platform, tags, importance
+            FROM short_term_memory
+            WHERE consolidated = FALSE AND expires_at > NOW() AND importance >= 0.5
+        """
+        params = []
+        param_idx = 1
+        if source_platform:
+            sql += f" AND source_platform = ${param_idx}"
+            params.append(source_platform)
+            param_idx += 1
+        sql += " ORDER BY importance DESC"
+
+        rows = await conn.fetch(sql, *params)
+        consolidated = []
+
+        for r in rows:
+            async with conn.transaction():
+                # Insert into long-term knowledge
+                k_row = await conn.fetchrow(
+                    """
+                    INSERT INTO knowledge (category, content, memory_type, tags, source_platform, importance, confidence)
+                    VALUES ('consolidated', $1, 'semantic', $2, $3, $4, 0.8)
+                    RETURNING id
+                    """,
+                    r["content"],
+                    r["tags"] or [],
+                    r["source_platform"],
+                    float(r["importance"]),
+                )
+                # Mark short-term entry as consolidated
+                await conn.execute(
+                    "UPDATE short_term_memory SET consolidated = TRUE, consolidated_into = $1 WHERE id = $2",
+                    k_row["id"], r["id"],
+                )
+                consolidated.append({
+                    "short_term_id": str(r["id"]),
+                    "knowledge_id": str(k_row["id"]),
+                    "content": r["content"][:80],
+                })
+
+        return {
+            "total_candidates": len(rows),
+            "consolidated": len(consolidated),
+            "entries": consolidated,
+        }
+
+
+async def cleanup_expired_memories() -> dict:
+    """Delete expired short-term memories and expired knowledge entries."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        stm_result = await conn.execute(
+            "DELETE FROM short_term_memory WHERE expires_at <= NOW()"
+        )
+        k_result = await conn.execute(
+            "DELETE FROM knowledge WHERE expires_at IS NOT NULL AND expires_at <= NOW()"
+        )
+        stm_count = int(stm_result.split()[-1]) if stm_result else 0
+        k_count = int(k_result.split()[-1]) if k_result else 0
+        return {
+            "deleted_short_term": stm_count,
+            "deleted_expired_knowledge": k_count,
+            "total_deleted": stm_count + k_count,
+        }
+
+
+# ─── Smart Recall (Unified Retrieval) ───────────────────────────────────────
+
+
+async def recall(
+    query: str,
+    platform: Optional[str] = None,
+    memory_types: Optional[list[str]] = None,
+    limit: int = 15,
+) -> dict:
+    """Unified smart recall with HYBRID search (vector + full-text).
+
+    Searches across ALL memory stores combining:
+      - Vector cosine similarity (semantic understanding)
+      - Full-text ts_rank (keyword matching)
+      - Recency (time decay)
+      - Importance scoring
+
+    Final score = semantic * 0.3 + text_rank * 0.2 + recency * 0.25 + importance * 0.25
+    """
+    pool = await get_pool()
+    results = []
+    seen_ids = set()
+    allowed_types = set(memory_types or ["short_term", "knowledge", "episodic", "procedural"])
+
+    # Generate query embedding for vector search
+    query_vec = await emb.get_embedding(query)
+    query_vec_str = str(query_vec)
+
+    def _score(text_rank: float, vec_sim: float, age_days: float, importance: float) -> float:
+        recency = 1.0 / (1.0 + age_days)
+        semantic = max(0.0, 1.0 - vec_sim) if vec_sim is not None else 0.0  # cosine distance → similarity
+        return semantic * 0.3 + float(text_rank) * 0.2 + recency * 0.25 + float(importance) * 0.25
+
+    def _age(created_at):
+        return (datetime.now(timezone.utc) - created_at.replace(tzinfo=timezone.utc)).total_seconds() / 86400.0
+
+    async with pool.acquire() as conn:
+
+        # ── Short-term memory (hybrid) ──
+        if "short_term" in allowed_types:
+            stm_rows = await conn.fetch(
+                """
+                SELECT id, content, context_key AS title, importance, created_at,
+                       ts_rank(to_tsvector('english', content), plainto_tsquery('english', $1)) AS text_rank,
+                       CASE WHEN embedding IS NOT NULL THEN embedding <=> $2::vector ELSE NULL END AS vec_dist
+                FROM short_term_memory
+                WHERE expires_at > NOW() AND consolidated = FALSE
+                  AND (to_tsvector('english', content) @@ plainto_tsquery('english', $1)
+                       OR (embedding IS NOT NULL AND embedding <=> $2::vector < 0.8))
+                ORDER BY COALESCE(embedding <=> $2::vector, 1.0) ASC LIMIT $3
+                """,
+                query, query_vec_str, limit,
+            )
+            for r in stm_rows:
+                rid = str(r["id"])
+                if rid in seen_ids:
+                    continue
+                seen_ids.add(rid)
+                results.append({
+                    "memory_type": "short_term",
+                    "id": rid,
+                    "title": r["title"],
+                    "content": r["content"],
+                    "importance": float(r["importance"]),
+                    "score": round(_score(r["text_rank"], r["vec_dist"], _age(r["created_at"]), r["importance"]), 4),
+                    "created_at": r["created_at"].isoformat(),
+                })
+
+        # ── Long-term knowledge (hybrid) ──
+        if "knowledge" in allowed_types:
+            k_sql = """
+                SELECT id, category AS title, content, importance, created_at, memory_type,
+                       ts_rank(to_tsvector('english', content), plainto_tsquery('english', $1)) AS text_rank,
+                       CASE WHEN embedding IS NOT NULL THEN embedding <=> $2::vector ELSE NULL END AS vec_dist
+                FROM knowledge
+                WHERE (expires_at IS NULL OR expires_at > NOW())
+                  AND (to_tsvector('english', content) @@ plainto_tsquery('english', $1)
+                       OR (embedding IS NOT NULL AND embedding <=> $2::vector < 0.7))
+            """
+            k_params = [query, query_vec_str]
+            k_idx = 3
+            if platform:
+                k_sql += f" AND source_platform = ${k_idx}"
+                k_params.append(platform)
+                k_idx += 1
+            k_sql += f" ORDER BY COALESCE(embedding <=> $2::vector, 1.0) ASC LIMIT ${k_idx}"
+            k_params.append(limit)
+
+            k_rows = await conn.fetch(k_sql, *k_params)
+            for r in k_rows:
+                rid = str(r["id"])
+                if rid in seen_ids:
+                    continue
+                seen_ids.add(rid)
+                results.append({
+                    "memory_type": f"knowledge/{r['memory_type']}",
+                    "id": rid,
+                    "title": r["title"],
+                    "content": r["content"],
+                    "importance": float(r["importance"]),
+                    "score": round(_score(r["text_rank"], r["vec_dist"], _age(r["created_at"]), r["importance"]), 4),
+                    "created_at": r["created_at"].isoformat(),
+                })
+                await conn.execute(
+                    "UPDATE knowledge SET access_count = access_count + 1, last_accessed_at = NOW() WHERE id = $1",
+                    r["id"],
+                )
+
+        # ── Episodic memory (hybrid) ──
+        if "episodic" in allowed_types:
+            e_sql = """
+                SELECT c.id, c.title, c.summary AS content, c.importance, c.created_at,
+                       ts_rank(to_tsvector('english', coalesce(c.title,'') || ' ' || coalesce(c.summary,'')),
+                               plainto_tsquery('english', $1)) AS text_rank,
+                       CASE WHEN c.embedding IS NOT NULL THEN c.embedding <=> $2::vector ELSE NULL END AS vec_dist
+                FROM conversations c
+                WHERE (to_tsvector('english', coalesce(c.title,'') || ' ' || coalesce(c.summary,''))
+                       @@ plainto_tsquery('english', $1)
+                       OR (c.embedding IS NOT NULL AND c.embedding <=> $2::vector < 0.7)
+                       OR c.id IN (SELECT conversation_id FROM messages
+                                   WHERE to_tsvector('english', content) @@ plainto_tsquery('english', $1)))
+            """
+            e_params = [query, query_vec_str]
+            e_idx = 3
+            if platform:
+                e_sql += f" AND c.platform = ${e_idx}"
+                e_params.append(platform)
+                e_idx += 1
+            e_sql += f" ORDER BY COALESCE(c.embedding <=> $2::vector, 1.0) ASC LIMIT ${e_idx}"
+            e_params.append(limit)
+
+            e_rows = await conn.fetch(e_sql, *e_params)
+            for r in e_rows:
+                rid = str(r["id"])
+                if rid in seen_ids:
+                    continue
+                seen_ids.add(rid)
+                results.append({
+                    "memory_type": "episodic",
+                    "id": rid,
+                    "title": r["title"],
+                    "content": r["content"],
+                    "importance": float(r["importance"]),
+                    "score": round(_score(r["text_rank"], r["vec_dist"], _age(r["created_at"]), r["importance"]), 4),
+                    "created_at": r["created_at"].isoformat(),
+                })
+                await conn.execute(
+                    "UPDATE conversations SET access_count = access_count + 1, last_accessed_at = NOW() WHERE id = $1",
+                    r["id"],
+                )
+
+        # ── Procedural memory (hybrid) ──
+        if "procedural" in allowed_types:
+            cs_rows = await conn.fetch(
+                """
+                SELECT id, title, code AS content, importance, created_at,
+                       ts_rank(to_tsvector('english', coalesce(title,'') || ' ' || coalesce(description,'') || ' ' || code),
+                               plainto_tsquery('english', $1)) AS text_rank,
+                       CASE WHEN embedding IS NOT NULL THEN embedding <=> $2::vector ELSE NULL END AS vec_dist
+                FROM code_snippets
+                WHERE (to_tsvector('english', coalesce(title,'') || ' ' || coalesce(description,'') || ' ' || code)
+                       @@ plainto_tsquery('english', $1)
+                       OR (embedding IS NOT NULL AND embedding <=> $2::vector < 0.7))
+                ORDER BY COALESCE(embedding <=> $2::vector, 1.0) ASC LIMIT $3
+                """,
+                query, query_vec_str, limit,
+            )
+            for r in cs_rows:
+                rid = str(r["id"])
+                if rid in seen_ids:
+                    continue
+                seen_ids.add(rid)
+                results.append({
+                    "memory_type": "procedural",
+                    "id": rid,
+                    "title": r["title"],
+                    "content": r["content"][:300],
+                    "importance": float(r["importance"]),
+                    "score": round(_score(r["text_rank"], r["vec_dist"], _age(r["created_at"]), r["importance"]), 4),
+                    "created_at": r["created_at"].isoformat(),
+                })
+
+    # Sort all results by composite score
+    results.sort(key=lambda x: x["score"], reverse=True)
+    return {
+        "query": query,
+        "total_results": len(results),
+        "results": results[:limit],
+    }
+
+
+# ─── Memory Importance Decay ────────────────────────────────────────────────
+
+
+async def decay_memories(decay_factor: float = 0.95) -> dict:
+    """Apply time-based decay to memory importance scores.
+
+    Reduces importance of all knowledge and conversation entries that
+    haven't been accessed recently. Memories that are accessed frequently
+    decay more slowly (their access_count acts as a buffer).
+
+    Formula: new_importance = importance * decay_factor ^ (days_since_last_access / 30)
+    Minimum importance is clamped at 0.05 so memories never fully vanish.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        # Decay knowledge
+        k_result = await conn.execute(
+            """
+            UPDATE knowledge SET
+                importance = GREATEST(0.05,
+                    importance * POWER($1, EXTRACT(EPOCH FROM (NOW() - COALESCE(last_accessed_at, created_at))) / 2592000.0)
+                ),
+                updated_at = NOW()
+            WHERE importance > 0.05
+              AND (expires_at IS NULL OR expires_at > NOW())
+            """,
+            decay_factor,
+        )
+        # Decay conversations
+        c_result = await conn.execute(
+            """
+            UPDATE conversations SET
+                importance = GREATEST(0.05,
+                    importance * POWER($1, EXTRACT(EPOCH FROM (NOW() - COALESCE(last_accessed_at, created_at))) / 2592000.0)
+                ),
+                updated_at = NOW()
+            WHERE importance > 0.05
+            """,
+            decay_factor,
+        )
+        k_count = int(k_result.split()[-1]) if k_result else 0
+        c_count = int(c_result.split()[-1]) if c_result else 0
+        return {
+            "decay_factor": decay_factor,
+            "knowledge_updated": k_count,
+            "conversations_updated": c_count,
+        }
+
+
+# ─── Enhanced Stats ─────────────────────────────────────────────────────────
+
+
+async def get_memory_health() -> dict:
+    """Get a comprehensive health overview of all memory stores."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        conv_count = await conn.fetchval("SELECT COUNT(*) FROM conversations")
+        msg_count = await conn.fetchval("SELECT COUNT(*) FROM messages")
+        k_total = await conn.fetchval("SELECT COUNT(*) FROM knowledge")
+        k_semantic = await conn.fetchval("SELECT COUNT(*) FROM knowledge WHERE memory_type = 'semantic'")
+        k_consolidated = await conn.fetchval("SELECT COUNT(*) FROM knowledge WHERE memory_type = 'semantic' AND category = 'consolidated'")
+        stm_active = await conn.fetchval("SELECT COUNT(*) FROM short_term_memory WHERE expires_at > NOW() AND consolidated = FALSE")
+        stm_expired = await conn.fetchval("SELECT COUNT(*) FROM short_term_memory WHERE expires_at <= NOW()")
+        stm_consolidated = await conn.fetchval("SELECT COUNT(*) FROM short_term_memory WHERE consolidated = TRUE")
+        snippets = await conn.fetchval("SELECT COUNT(*) FROM code_snippets")
+        projects = await conn.fetchval("SELECT COUNT(*) FROM projects")
+
+        avg_k_importance = await conn.fetchval("SELECT COALESCE(AVG(importance), 0) FROM knowledge")
+        avg_c_importance = await conn.fetchval("SELECT COALESCE(AVG(importance), 0) FROM conversations")
+
+        expiring_soon = await conn.fetchval(
+            "SELECT COUNT(*) FROM short_term_memory WHERE expires_at > NOW() AND expires_at <= NOW() + INTERVAL '30 minutes' AND consolidated = FALSE"
+        )
+
+        return {
+            "episodic_memory": {
+                "conversations": conv_count,
+                "messages": msg_count,
+                "avg_importance": round(float(avg_c_importance), 3),
+            },
+            "semantic_memory": {
+                "total_knowledge": k_total,
+                "semantic_entries": k_semantic,
+                "consolidated_from_stm": k_consolidated,
+                "avg_importance": round(float(avg_k_importance), 3),
+            },
+            "short_term_memory": {
+                "active": stm_active,
+                "expired_pending_cleanup": stm_expired,
+                "consolidated": stm_consolidated,
+                "expiring_soon_30min": expiring_soon,
+            },
+            "procedural_memory": {
+                "code_snippets": snippets,
+            },
+            "projects": projects,
+        }
+
+
+# ─── Memory Reflection & Compression ────────────────────────────────────────
+
+
+async def reflect_and_compress(
+    older_than_days: int = 7,
+    min_conversations: int = 3,
+    platform: Optional[str] = None,
+) -> dict:
+    """Compress old conversations into dense knowledge summaries.
+
+    Finds clusters of related old conversations (by shared tags and
+    overlapping content), extracts the key takeaways, and saves them as
+    high-importance knowledge entries. The original conversations are
+    marked with a 'compressed' tag but NOT deleted.
+
+    This keeps the memory store lean while preserving all important context.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        # Find old conversations that haven't been compressed yet
+        sql = """
+            SELECT id, title, summary, tags, importance, platform, created_at
+            FROM conversations
+            WHERE created_at < NOW() - ($1 || ' days')::INTERVAL
+              AND NOT ('compressed' = ANY(tags))
+              AND summary IS NOT NULL AND summary != ''
+        """
+        params = [str(older_than_days)]
+        p_idx = 2
+        if platform:
+            sql += f" AND platform = ${p_idx}"
+            params.append(platform)
+            p_idx += 1
+        sql += " ORDER BY created_at ASC"
+
+        rows = await conn.fetch(sql, *params)
+
+        if len(rows) < min_conversations:
+            return {
+                "status": "skipped",
+                "reason": f"Only {len(rows)} old conversations found (minimum: {min_conversations})",
+                "compressed": 0,
+            }
+
+        # Group by shared tags into clusters
+        clusters = {}
+        for r in rows:
+            # Use the first tag as cluster key, or 'general' if no tags
+            cluster_key = r["tags"][0] if r["tags"] else "general"
+            if cluster_key not in clusters:
+                clusters[cluster_key] = []
+            clusters[cluster_key].append(r)
+
+        compressed_entries = []
+
+        for cluster_key, convos in clusters.items():
+            if len(convos) < 2:
+                # Single conversations don't need compression
+                continue
+
+            # Build a compressed summary from all conversations in cluster
+            summaries = []
+            max_importance = 0.0
+            conv_ids = []
+            all_tags = set()
+            platforms_used = set()
+
+            for c in convos:
+                summaries.append(f"- {c['title'] or 'Untitled'}: {c['summary']}")
+                max_importance = max(max_importance, float(c["importance"]))
+                conv_ids.append(c["id"])
+                all_tags.update(c["tags"] or [])
+                platforms_used.add(c["platform"])
+
+            compressed_content = (
+                f"Compressed memory from {len(convos)} conversations "
+                f"(platforms: {', '.join(platforms_used)}, "
+                f"period: {convos[0]['created_at'].strftime('%Y-%m-%d')} to "
+                f"{convos[-1]['created_at'].strftime('%Y-%m-%d')}):\n"
+                + "\n".join(summaries[:20])  # Cap at 20 entries per cluster
+            )
+
+            # Generate embedding for compressed content
+            vec = await emb.get_embedding(compressed_content)
+            vec_str = str(vec) if vec else None
+
+            # Save as high-importance knowledge
+            k_row = await conn.fetchrow(
+                """
+                INSERT INTO knowledge (category, content, memory_type, tags, importance, confidence, embedding)
+                VALUES ('reflection', $1, 'semantic', $2, $3, 0.9, $4)
+                RETURNING id
+                """,
+                compressed_content,
+                list(all_tags),
+                min(1.0, max_importance + 0.1),  # Boost importance slightly
+                vec_str,
+            )
+
+            # Mark original conversations as compressed
+            for cid in conv_ids:
+                await conn.execute(
+                    "UPDATE conversations SET tags = array_append(tags, 'compressed') WHERE id = $1",
+                    cid,
+                )
+
+            compressed_entries.append({
+                "knowledge_id": str(k_row["id"]),
+                "cluster": cluster_key,
+                "conversations_compressed": len(convos),
+                "content_preview": compressed_content[:150],
+            })
+
+        return {
+            "status": "completed",
+            "total_old_conversations": len(rows),
+            "clusters_found": len(clusters),
+            "compressed_entries": len(compressed_entries),
+            "entries": compressed_entries,
         }

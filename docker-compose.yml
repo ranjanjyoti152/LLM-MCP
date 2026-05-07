@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: llm-mcp-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-mcp_user}
@@ -26,6 +26,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-mcp_user}:${POSTGRES_PASSWORD:-mcp_secure_pass_2026}@postgres:5432/${POSTGRES_DB:-mcp_memory}
       MCP_HOST: ${MCP_HOST:-0.0.0.0}
       MCP_PORT: ${MCP_PORT:-4040}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
     ports:
       - "${MCP_PORT:-4040}:4040"
     depends_on:
