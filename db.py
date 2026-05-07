@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS knowledge (
     last_accessed_at TIMESTAMPTZ,
     expires_at TIMESTAMPTZ,
     embedding vector(512),
+    version INTEGER DEFAULT 1,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -160,6 +161,48 @@ CREATE INDEX IF NOT EXISTS idx_projects_search
 CREATE INDEX IF NOT EXISTS idx_projects_name
     ON projects(name);
 
+-- Knowledge version history (change tracking)
+CREATE TABLE IF NOT EXISTS knowledge_versions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    knowledge_id UUID NOT NULL REFERENCES knowledge(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    category VARCHAR(100) NOT NULL,
+    tags TEXT[] DEFAULT '{}',
+    source_platform VARCHAR(50),
+    importance REAL DEFAULT 0.5,
+    confidence REAL DEFAULT 1.0,
+    changed_by VARCHAR(50),
+    change_type VARCHAR(20) NOT NULL DEFAULT 'update',
+    change_reason TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Memory conflicts (cross-platform conflict tracking)
+CREATE TABLE IF NOT EXISTS memory_conflicts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    knowledge_id UUID REFERENCES knowledge(id) ON DELETE CASCADE,
+    conflicting_content TEXT NOT NULL,
+    conflicting_platform VARCHAR(50) NOT NULL,
+    existing_platform VARCHAR(50),
+    existing_content TEXT,
+    conflict_type VARCHAR(30) NOT NULL DEFAULT 'content_mismatch',
+    resolution_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    resolution_strategy VARCHAR(30),
+    resolved_by VARCHAR(50),
+    resolved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_versions_kid
+    ON knowledge_versions(knowledge_id, version DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_conflicts_status
+    ON memory_conflicts(resolution_status) WHERE resolution_status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_memory_conflicts_kid
+    ON memory_conflicts(knowledge_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_version
+    ON knowledge(version);
+
 -- Vector similarity indexes (HNSW for fast approximate nearest neighbor)
 CREATE INDEX IF NOT EXISTS idx_knowledge_embedding
     ON knowledge USING hnsw (embedding vector_cosine_ops) WHERE embedding IS NOT NULL;
@@ -210,6 +253,42 @@ CREATE TABLE IF NOT EXISTS short_term_memory (
     consolidated BOOLEAN DEFAULT FALSE,
     consolidated_into UUID,
     embedding vector(512),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Add version column to knowledge
+ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1;
+
+-- Create knowledge_versions table if not present
+CREATE TABLE IF NOT EXISTS knowledge_versions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    knowledge_id UUID NOT NULL REFERENCES knowledge(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    category VARCHAR(100) NOT NULL,
+    tags TEXT[] DEFAULT '{}',
+    source_platform VARCHAR(50),
+    importance REAL DEFAULT 0.5,
+    confidence REAL DEFAULT 1.0,
+    changed_by VARCHAR(50),
+    change_type VARCHAR(20) NOT NULL DEFAULT 'update',
+    change_reason TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Create memory_conflicts table if not present
+CREATE TABLE IF NOT EXISTS memory_conflicts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    knowledge_id UUID REFERENCES knowledge(id) ON DELETE CASCADE,
+    conflicting_content TEXT NOT NULL,
+    conflicting_platform VARCHAR(50) NOT NULL,
+    existing_platform VARCHAR(50),
+    existing_content TEXT,
+    conflict_type VARCHAR(30) NOT NULL DEFAULT 'content_mismatch',
+    resolution_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    resolution_strategy VARCHAR(30),
+    resolved_by VARCHAR(50),
+    resolved_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 """
@@ -830,8 +909,13 @@ async def update_knowledge(
     content: Optional[str] = None,
     category: Optional[str] = None,
     tags: Optional[list[str]] = None,
+    changed_by: Optional[str] = None,
+    change_reason: Optional[str] = None,
 ) -> dict:
-    """Update an existing knowledge entry."""
+    """Update an existing knowledge entry with version tracking.
+
+    Before updating, saves a snapshot of the current state to knowledge_versions.
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         try:
@@ -841,14 +925,53 @@ async def update_knowledge(
         existing = await conn.fetchrow("SELECT * FROM knowledge WHERE id = $1", kid)
         if not existing:
             return {"error": "Not found"}
+
+        current_version = existing.get("version") or 1
+
+        # Snapshot current state into version history
+        await conn.execute(
+            """
+            INSERT INTO knowledge_versions
+                (knowledge_id, version, content, category, tags, source_platform,
+                 importance, confidence, changed_by, change_type, change_reason)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'update', $10)
+            """,
+            kid, current_version, existing["content"], existing["category"],
+            existing["tags"], existing["source_platform"],
+            existing["importance"], existing["confidence"],
+            changed_by or existing.get("source_platform"), change_reason,
+        )
+
         new_content = content if content is not None else existing["content"]
         new_category = category if category is not None else existing["category"]
         new_tags = tags if tags is not None else existing["tags"]
-        await conn.execute(
-            "UPDATE knowledge SET content=$1, category=$2, tags=$3, updated_at=NOW() WHERE id=$4",
-            new_content, new_category, new_tags, kid,
-        )
-        return {"id": str(kid), "status": "updated", "content": new_content[:100], "category": new_category}
+        new_version = current_version + 1
+
+        # Update the embedding if content changed
+        vec_str = None
+        if content is not None and content != existing["content"]:
+            vec = await emb.get_embedding(new_content)
+            vec_str = str(vec) if vec else None
+
+        if vec_str:
+            await conn.execute(
+                "UPDATE knowledge SET content=$1, category=$2, tags=$3, version=$4, embedding=$5, updated_at=NOW() WHERE id=$6",
+                new_content, new_category, new_tags, new_version, vec_str, kid,
+            )
+        else:
+            await conn.execute(
+                "UPDATE knowledge SET content=$1, category=$2, tags=$3, version=$4, updated_at=NOW() WHERE id=$5",
+                new_content, new_category, new_tags, new_version, kid,
+            )
+
+        return {
+            "id": str(kid),
+            "status": "updated",
+            "version": new_version,
+            "previous_version": current_version,
+            "content": new_content[:100],
+            "category": new_category,
+        }
 
 
 async def list_all_knowledge(
@@ -1920,3 +2043,438 @@ async def reflect_and_compress(
             "compressed_entries": len(compressed_entries),
             "entries": compressed_entries,
         }
+
+
+# ─── Memory Versioning & Change Tracking ────────────────────────────────────
+
+
+async def get_knowledge_history(
+    knowledge_id: str,
+    limit: int = 20,
+) -> dict:
+    """Get the full version history of a knowledge entry.
+
+    Returns the current version plus all previous snapshots,
+    showing what changed, when, and by whom.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        try:
+            kid = _uuid.UUID(knowledge_id)
+        except ValueError:
+            return {"error": "Invalid UUID"}
+
+        # Current state
+        current = await conn.fetchrow(
+            "SELECT id, category, content, tags, source_platform, importance, confidence, version, created_at, updated_at FROM knowledge WHERE id = $1",
+            kid,
+        )
+        if not current:
+            return {"error": "Knowledge entry not found"}
+
+        # Version history
+        versions = await conn.fetch(
+            """
+            SELECT version, content, category, tags, source_platform,
+                   importance, confidence, changed_by, change_type, change_reason, created_at
+            FROM knowledge_versions
+            WHERE knowledge_id = $1
+            ORDER BY version DESC LIMIT $2
+            """,
+            kid, limit,
+        )
+
+        return {
+            "knowledge_id": str(kid),
+            "current": {
+                "version": current["version"] or 1,
+                "content": current["content"],
+                "category": current["category"],
+                "tags": current["tags"],
+                "source_platform": current["source_platform"],
+                "importance": float(current["importance"]),
+                "confidence": float(current["confidence"]),
+                "created_at": current["created_at"].isoformat(),
+                "updated_at": current["updated_at"].isoformat(),
+            },
+            "total_versions": len(versions) + 1,
+            "history": [
+                {
+                    "version": v["version"],
+                    "content": v["content"],
+                    "category": v["category"],
+                    "tags": v["tags"],
+                    "changed_by": v["changed_by"],
+                    "change_type": v["change_type"],
+                    "change_reason": v["change_reason"],
+                    "importance": float(v["importance"]),
+                    "timestamp": v["created_at"].isoformat(),
+                }
+                for v in versions
+            ],
+        }
+
+
+async def rollback_knowledge(
+    knowledge_id: str,
+    target_version: int,
+    rolled_back_by: Optional[str] = None,
+) -> dict:
+    """Rollback a knowledge entry to a previous version.
+
+    Restores the content, category, tags, importance, and confidence
+    from the specified version. Creates a new version entry recording
+    the rollback.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        try:
+            kid = _uuid.UUID(knowledge_id)
+        except ValueError:
+            return {"error": "Invalid UUID"}
+
+        # Get current state
+        current = await conn.fetchrow("SELECT * FROM knowledge WHERE id = $1", kid)
+        if not current:
+            return {"error": "Knowledge entry not found"}
+
+        # Find the target version
+        target = await conn.fetchrow(
+            "SELECT * FROM knowledge_versions WHERE knowledge_id = $1 AND version = $2",
+            kid, target_version,
+        )
+        if not target:
+            return {"error": f"Version {target_version} not found"}
+
+        current_version = current.get("version") or 1
+
+        # Snapshot current state as a version (before rollback)
+        await conn.execute(
+            """
+            INSERT INTO knowledge_versions
+                (knowledge_id, version, content, category, tags, source_platform,
+                 importance, confidence, changed_by, change_type, change_reason)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'rollback', $10)
+            """,
+            kid, current_version, current["content"], current["category"],
+            current["tags"], current["source_platform"],
+            current["importance"], current["confidence"],
+            rolled_back_by, f"Rolled back to version {target_version}",
+        )
+
+        new_version = current_version + 1
+
+        # Restore from target version
+        vec = await emb.get_embedding(target["content"])
+        vec_str = str(vec) if vec else None
+
+        await conn.execute(
+            """
+            UPDATE knowledge SET
+                content = $1, category = $2, tags = $3,
+                importance = $4, confidence = $5,
+                version = $6, embedding = $7, updated_at = NOW()
+            WHERE id = $8
+            """,
+            target["content"], target["category"], target["tags"],
+            target["importance"], target["confidence"],
+            new_version, vec_str, kid,
+        )
+
+        return {
+            "id": str(kid),
+            "status": "rolled_back",
+            "from_version": current_version,
+            "to_version": new_version,
+            "restored_from": target_version,
+            "content": target["content"][:100],
+            "category": target["category"],
+        }
+
+
+# ─── Memory Conflict Resolution ─────────────────────────────────────────────
+
+# Similarity threshold for conflict detection (0.0 = identical, 2.0 = completely different)
+CONFLICT_SIMILARITY_THRESHOLD = 0.4
+
+
+async def detect_and_save_or_conflict(
+    category: str,
+    content: str,
+    tags: Optional[list[str]] = None,
+    source_platform: Optional[str] = None,
+    source_conversation_id: Optional[str] = None,
+    metadata: Optional[dict] = None,
+    memory_type: str = "semantic",
+    importance: float = 0.5,
+    confidence: float = 1.0,
+) -> dict:
+    """Save knowledge with automatic cross-platform conflict detection.
+
+    Before saving, checks if similar knowledge already exists from a
+    DIFFERENT platform. If it does and the content meaningfully differs,
+    a conflict is raised instead of silently overwriting.
+
+    Conflict strategies:
+    - If exact duplicate: skip (dedup)
+    - If same topic but different content from different platform: create conflict
+    - If no match: save normally
+    """
+    pool = await get_pool()
+    vec = await emb.get_embedding(content)
+    vec_str = str(vec) if vec else None
+
+    async with pool.acquire() as conn:
+        # Check for similar existing knowledge using vector similarity
+        similar = None
+        if vec_str:
+            similar_rows = await conn.fetch(
+                """
+                SELECT id, content, category, source_platform, importance, confidence, version,
+                       embedding <=> $1::vector AS distance
+                FROM knowledge
+                WHERE embedding IS NOT NULL
+                  AND category = $2
+                  AND (expires_at IS NULL OR expires_at > NOW())
+                ORDER BY embedding <=> $1::vector ASC
+                LIMIT 3
+                """,
+                vec_str, category,
+            )
+            for row in similar_rows:
+                dist = float(row["distance"])
+                if dist < CONFLICT_SIMILARITY_THRESHOLD:
+                    similar = row
+                    break
+
+        # Also check full-text for exact-ish matches
+        if not similar:
+            similar = await conn.fetchrow(
+                """
+                SELECT id, content, category, source_platform, importance, confidence, version,
+                       ts_rank(to_tsvector('english', content), plainto_tsquery('english', $1)) AS rank
+                FROM knowledge
+                WHERE to_tsvector('english', content) @@ plainto_tsquery('english', $1)
+                  AND category = $2
+                ORDER BY rank DESC LIMIT 1
+                """,
+                content[:200], category,
+            )
+            if similar and float(similar.get("rank", 0)) < 0.3:
+                similar = None  # Not similar enough
+
+        if similar:
+            existing_platform = similar["source_platform"] or "unknown"
+            existing_content = similar["content"]
+
+            # Exact duplicate — skip
+            if existing_content.strip().lower() == content.strip().lower():
+                return {
+                    "status": "duplicate_skipped",
+                    "existing_id": str(similar["id"]),
+                    "message": "Identical knowledge already exists",
+                }
+
+            # Same platform — just update (no conflict)
+            if existing_platform == source_platform:
+                result = await update_knowledge(
+                    str(similar["id"]),
+                    content=content,
+                    tags=tags,
+                    changed_by=source_platform,
+                    change_reason="Updated by same platform",
+                )
+                result["status"] = "updated_same_platform"
+                return result
+
+            # DIFFERENT platform with different content → CONFLICT
+            conflict_row = await conn.fetchrow(
+                """
+                INSERT INTO memory_conflicts
+                    (knowledge_id, conflicting_content, conflicting_platform,
+                     existing_platform, existing_content, conflict_type)
+                VALUES ($1, $2, $3, $4, $5, 'content_mismatch')
+                RETURNING id, created_at
+                """,
+                similar["id"], content, source_platform or "unknown",
+                existing_platform, existing_content,
+            )
+
+            return {
+                "status": "conflict_detected",
+                "conflict_id": str(conflict_row["id"]),
+                "existing_id": str(similar["id"]),
+                "existing_platform": existing_platform,
+                "existing_content": existing_content[:100],
+                "new_platform": source_platform,
+                "new_content": content[:100],
+                "message": "Conflicting knowledge from different platform. Use resolve_conflict to handle.",
+            }
+
+        # No conflict — save normally
+        conv_id = None
+        if source_conversation_id:
+            try:
+                conv_id = _uuid.UUID(source_conversation_id)
+            except ValueError:
+                pass
+
+        row = await conn.fetchrow(
+            """
+            INSERT INTO knowledge (category, content, tags, source_platform, source_conversation_id,
+                                   metadata, memory_type, importance, confidence, embedding, version)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1)
+            RETURNING id, created_at
+            """,
+            category, content, tags or [], source_platform, conv_id,
+            json.dumps(metadata or {}), memory_type,
+            max(0.0, min(1.0, importance)),
+            max(0.0, min(1.0, confidence)),
+            vec_str,
+        )
+
+        return {
+            "status": "saved",
+            "id": str(row["id"]),
+            "category": category,
+            "content": content[:100] + "..." if len(content) > 100 else content,
+            "version": 1,
+            "created_at": row["created_at"].isoformat(),
+        }
+
+
+async def list_conflicts(
+    status: str = "pending",
+    limit: int = 20,
+) -> dict:
+    """List memory conflicts, optionally filtered by resolution status."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT mc.id, mc.knowledge_id, mc.conflicting_content, mc.conflicting_platform,
+                   mc.existing_platform, mc.existing_content, mc.conflict_type,
+                   mc.resolution_status, mc.resolution_strategy, mc.resolved_by,
+                   mc.resolved_at, mc.created_at,
+                   k.category, k.version AS current_version
+            FROM memory_conflicts mc
+            LEFT JOIN knowledge k ON k.id = mc.knowledge_id
+            WHERE mc.resolution_status = $1
+            ORDER BY mc.created_at DESC LIMIT $2
+            """,
+            status, limit,
+        )
+
+        return {
+            "status_filter": status,
+            "total": len(rows),
+            "conflicts": [
+                {
+                    "conflict_id": str(r["id"]),
+                    "knowledge_id": str(r["knowledge_id"]) if r["knowledge_id"] else None,
+                    "category": r["category"],
+                    "existing_platform": r["existing_platform"],
+                    "existing_content": r["existing_content"][:150] if r["existing_content"] else None,
+                    "conflicting_platform": r["conflicting_platform"],
+                    "conflicting_content": r["conflicting_content"][:150],
+                    "conflict_type": r["conflict_type"],
+                    "resolution_status": r["resolution_status"],
+                    "created_at": r["created_at"].isoformat(),
+                }
+                for r in rows
+            ],
+        }
+
+
+async def resolve_conflict(
+    conflict_id: str,
+    strategy: str = "keep_existing",
+    merged_content: Optional[str] = None,
+    resolved_by: Optional[str] = None,
+) -> dict:
+    """Resolve a memory conflict using the specified strategy.
+
+    Strategies:
+    - 'keep_existing': Keep the existing knowledge, discard the conflict
+    - 'use_new': Replace existing with the conflicting content (with version tracking)
+    - 'merge': Use the provided merged_content as the new version
+    - 'keep_both': Save conflicting content as a separate knowledge entry
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        try:
+            cid = _uuid.UUID(conflict_id)
+        except ValueError:
+            return {"error": "Invalid conflict UUID"}
+
+        conflict = await conn.fetchrow(
+            "SELECT * FROM memory_conflicts WHERE id = $1", cid,
+        )
+        if not conflict:
+            return {"error": "Conflict not found"}
+
+        if conflict["resolution_status"] != "pending":
+            return {"error": f"Conflict already resolved ({conflict['resolution_status']})"}
+
+        kid = conflict["knowledge_id"]
+        result = {"conflict_id": str(cid), "strategy": strategy}
+
+        if strategy == "keep_existing":
+            # Just mark as resolved, no changes
+            result["action"] = "Kept existing knowledge unchanged"
+
+        elif strategy == "use_new":
+            # Replace existing with conflicting content
+            update_result = await update_knowledge(
+                str(kid),
+                content=conflict["conflicting_content"],
+                changed_by=conflict["conflicting_platform"],
+                change_reason=f"Conflict resolution: accepted content from {conflict['conflicting_platform']}",
+            )
+            result["action"] = "Replaced with new content"
+            result["new_version"] = update_result.get("version")
+
+        elif strategy == "merge":
+            if not merged_content:
+                return {"error": "merged_content is required for 'merge' strategy"}
+            update_result = await update_knowledge(
+                str(kid),
+                content=merged_content,
+                changed_by=resolved_by or "conflict_resolution",
+                change_reason=f"Merged content from {conflict['existing_platform']} and {conflict['conflicting_platform']}",
+            )
+            result["action"] = "Merged content saved"
+            result["new_version"] = update_result.get("version")
+
+        elif strategy == "keep_both":
+            # Save conflicting content as a new entry
+            existing = await conn.fetchrow("SELECT category, tags, memory_type FROM knowledge WHERE id = $1", kid)
+            new_entry = await save_knowledge(
+                category=existing["category"] if existing else "general",
+                content=conflict["conflicting_content"],
+                tags=existing["tags"] if existing else [],
+                source_platform=conflict["conflicting_platform"],
+                memory_type=existing["memory_type"] if existing else "semantic",
+                importance=0.5,
+            )
+            result["action"] = "Saved conflicting content as separate entry"
+            result["new_knowledge_id"] = new_entry["id"]
+
+        else:
+            return {"error": f"Unknown strategy: {strategy}. Use: keep_existing, use_new, merge, keep_both"}
+
+        # Mark conflict as resolved
+        await conn.execute(
+            """
+            UPDATE memory_conflicts SET
+                resolution_status = 'resolved',
+                resolution_strategy = $1,
+                resolved_by = $2,
+                resolved_at = NOW()
+            WHERE id = $3
+            """,
+            strategy, resolved_by or "system", cid,
+        )
+
+        result["status"] = "resolved"
+        return result

@@ -367,24 +367,32 @@ async def update_knowledge(
     content: str = "",
     category: str = "",
     tags: list[str] = [],
+    changed_by: str = "",
+    change_reason: str = "",
 ) -> str:
     """
-    Update an existing knowledge entry.
+    Update an existing knowledge entry (with automatic version tracking).
+
+    Every update creates a version snapshot so you can view history and rollback.
 
     Args:
         knowledge_id: The UUID of the knowledge entry to update
         content: New content (leave empty to keep existing)
         category: New category (leave empty to keep existing)
         tags: New tags (leave empty to keep existing)
+        changed_by: Platform or user making the change (for audit trail)
+        change_reason: Why this change was made
 
     Returns:
-        JSON string with updated knowledge entry details.
+        JSON string with updated entry details including version number.
     """
     result = await db.update_knowledge(
         knowledge_id=knowledge_id,
         content=content or None,
         category=category.lower().strip() or None,
         tags=tags or None,
+        changed_by=changed_by.strip() or None,
+        change_reason=change_reason.strip() or None,
     )
     return json.dumps(result, indent=2)
 
@@ -1026,6 +1034,178 @@ async def memory_platforms() -> str:
 async def memory_health_resource() -> str:
     """Get comprehensive memory system health — episodic, semantic, short-term, and procedural stores."""
     result = await db.get_memory_health()
+    return json.dumps(result, indent=2)
+
+
+# ─── Memory Versioning & Conflict Resolution Tools ──────────────────────────
+
+
+@mcp.tool()
+async def knowledge_history(
+    knowledge_id: str,
+    limit: int = 20,
+) -> str:
+    """
+    Get the full version history of a knowledge entry.
+
+    Shows the current version and all previous versions with diffs,
+    who changed it, when, and why. Use this to audit changes and
+    understand how knowledge evolved over time.
+
+    Args:
+        knowledge_id: UUID of the knowledge entry
+        limit: Maximum number of history entries (default: 20)
+
+    Returns:
+        JSON with current state and version history.
+    """
+    result = await db.get_knowledge_history(knowledge_id, limit)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def rollback_knowledge(
+    knowledge_id: str,
+    target_version: int,
+    rolled_back_by: str = "",
+) -> str:
+    """
+    Rollback a knowledge entry to a previous version.
+
+    Restores content, category, tags, importance from the target version.
+    The current state is saved as a version before rollback, so nothing is lost.
+
+    Use knowledge_history first to find the version number you want.
+
+    Args:
+        knowledge_id: UUID of the knowledge entry
+        target_version: The version number to restore to
+        rolled_back_by: Who initiated the rollback (platform name)
+
+    Returns:
+        JSON with rollback result.
+    """
+    result = await db.rollback_knowledge(
+        knowledge_id, target_version,
+        rolled_back_by=rolled_back_by.strip() or None,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def save_knowledge_smart(
+    category: str,
+    content: str,
+    tags: list[str] = [],
+    source_platform: str = "",
+    memory_type: str = "semantic",
+    importance: float = 0.5,
+    confidence: float = 1.0,
+) -> str:
+    """
+    Save knowledge with automatic cross-platform conflict detection.
+
+    This is the SMART version of save_knowledge. Before saving, it checks
+    if similar knowledge already exists from a DIFFERENT platform.
+
+    Behaviors:
+    - Exact duplicate: silently skips (dedup)
+    - Same platform, similar content: updates in place (with version tracking)
+    - Different platform, conflicting content: creates a conflict for review
+    - No match: saves normally
+
+    Use this instead of save_knowledge when you want conflict awareness.
+
+    Args:
+        category: Category (fact, preference, instruction, decision)
+        content: The knowledge content
+        tags: Tags for searchability
+        source_platform: Which platform is saving this
+        memory_type: Type of memory (semantic, episodic, procedural)
+        importance: 0.0-1.0 importance score
+        confidence: 0.0-1.0 confidence in accuracy
+
+    Returns:
+        JSON with save result or conflict information.
+    """
+    result = await db.detect_and_save_or_conflict(
+        category=category.lower().strip(),
+        content=content,
+        tags=tags or [],
+        source_platform=source_platform.lower().strip() if source_platform else None,
+        memory_type=memory_type,
+        importance=importance,
+        confidence=confidence,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def list_conflicts(
+    status: str = "pending",
+    limit: int = 20,
+) -> str:
+    """
+    List memory conflicts between platforms.
+
+    When different AI platforms save conflicting knowledge about the same
+    topic, conflicts are created. Use this to review them and decide
+    how to resolve (keep_existing, use_new, merge, or keep_both).
+
+    Args:
+        status: Filter by status — 'pending', 'resolved', or 'all' (default: pending)
+        limit: Maximum conflicts to return (default: 20)
+
+    Returns:
+        JSON with list of conflicts showing both sides.
+    """
+    if status == "all":
+        # Get both pending and resolved
+        pending = await db.list_conflicts("pending", limit)
+        resolved = await db.list_conflicts("resolved", limit)
+        return json.dumps({
+            "pending": pending["conflicts"],
+            "resolved": resolved["conflicts"],
+            "total_pending": pending["total"],
+            "total_resolved": resolved["total"],
+        }, indent=2)
+    result = await db.list_conflicts(status, limit)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def resolve_conflict(
+    conflict_id: str,
+    strategy: str = "keep_existing",
+    merged_content: str = "",
+    resolved_by: str = "",
+) -> str:
+    """
+    Resolve a memory conflict between platforms.
+
+    Strategies:
+    - 'keep_existing': Keep existing knowledge, discard the conflict
+    - 'use_new': Replace existing with the new conflicting content
+    - 'merge': Provide merged_content that combines both versions
+    - 'keep_both': Save both as separate knowledge entries
+
+    All changes are version-tracked — nothing is permanently lost.
+
+    Args:
+        conflict_id: UUID of the conflict to resolve
+        strategy: Resolution strategy (keep_existing, use_new, merge, keep_both)
+        merged_content: Required only for 'merge' strategy — the combined content
+        resolved_by: Who resolved this conflict (platform name)
+
+    Returns:
+        JSON with resolution result.
+    """
+    result = await db.resolve_conflict(
+        conflict_id=conflict_id,
+        strategy=strategy,
+        merged_content=merged_content.strip() or None,
+        resolved_by=resolved_by.strip() or None,
+    )
     return json.dumps(result, indent=2)
 
 
