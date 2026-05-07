@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "llm-memory": {
+      "serverUrl": "http://localhost:4040/mcp"
+    }
+  }
+}

@@ -1558,7 +1558,7 @@ async def recall(
                 FROM short_term_memory
                 WHERE expires_at > NOW() AND consolidated = FALSE
                   AND (to_tsvector('english', content) @@ plainto_tsquery('english', $1)
-                       OR (embedding IS NOT NULL AND embedding <=> $2::vector < 0.8))
+                       OR (embedding IS NOT NULL AND embedding <=> $2::vector < 1.2))
                 ORDER BY COALESCE(embedding <=> $2::vector, 1.0) ASC LIMIT $3
                 """,
                 query, query_vec_str, limit,
@@ -1587,7 +1587,7 @@ async def recall(
                 FROM knowledge
                 WHERE (expires_at IS NULL OR expires_at > NOW())
                   AND (to_tsvector('english', content) @@ plainto_tsquery('english', $1)
-                       OR (embedding IS NOT NULL AND embedding <=> $2::vector < 0.7))
+                       OR (embedding IS NOT NULL AND embedding <=> $2::vector < 1.2))
             """
             k_params = [query, query_vec_str]
             k_idx = 3
@@ -1628,7 +1628,7 @@ async def recall(
                 FROM conversations c
                 WHERE (to_tsvector('english', coalesce(c.title,'') || ' ' || coalesce(c.summary,''))
                        @@ plainto_tsquery('english', $1)
-                       OR (c.embedding IS NOT NULL AND c.embedding <=> $2::vector < 0.7)
+                       OR (c.embedding IS NOT NULL AND c.embedding <=> $2::vector < 1.2)
                        OR c.id IN (SELECT conversation_id FROM messages
                                    WHERE to_tsvector('english', content) @@ plainto_tsquery('english', $1)))
             """
@@ -1672,7 +1672,7 @@ async def recall(
                 FROM code_snippets
                 WHERE (to_tsvector('english', coalesce(title,'') || ' ' || coalesce(description,'') || ' ' || code)
                        @@ plainto_tsquery('english', $1)
-                       OR (embedding IS NOT NULL AND embedding <=> $2::vector < 0.7))
+                       OR (embedding IS NOT NULL AND embedding <=> $2::vector < 1.2))
                 ORDER BY COALESCE(embedding <=> $2::vector, 1.0) ASC LIMIT $3
                 """,
                 query, query_vec_str, limit,
