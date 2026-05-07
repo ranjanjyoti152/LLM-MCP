@@ -209,6 +209,7 @@ CREATE TABLE IF NOT EXISTS short_term_memory (
     expires_at TIMESTAMPTZ NOT NULL,
     consolidated BOOLEAN DEFAULT FALSE,
     consolidated_into UUID,
+    embedding vector(512),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 """
@@ -223,19 +224,37 @@ async def get_pool() -> asyncpg.Pool:
     return _pool
 
 
+def _split_sql(sql: str) -> list[str]:
+    """Split SQL into individual statements, stripping comments."""
+    # Remove full-line comments
+    lines = [l for l in sql.split('\n') if not l.strip().startswith('--')]
+    clean = '\n'.join(lines)
+    # Split on semicolons and filter empty
+    return [s.strip() for s in clean.split(';') if s.strip()]
+
+
 async def init_db():
     """Initialize the database schema and run migrations for existing databases."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute(SCHEMA_SQL)
-        # Run migrations to add new columns to existing tables safely
-        for statement in MIGRATION_SQL.strip().split(';'):
-            statement = statement.strip()
-            if statement and not statement.startswith('--'):
-                try:
-                    await conn.execute(statement)
-                except Exception:
-                    pass  # Column/table already exists or other safe-to-skip error
+        # Enable pgvector extension first (needed before any vector columns)
+        await conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+
+        # Run migrations FIRST to add new columns to existing tables
+        # This must happen before indexes reference those columns
+        for statement in _split_sql(MIGRATION_SQL):
+            try:
+                await conn.execute(statement)
+            except Exception:
+                pass  # Column/table already exists or other safe-to-skip error
+
+        # Execute SCHEMA_SQL statement by statement
+        # (batch execution fails if indexes reference columns added by migration)
+        for statement in _split_sql(SCHEMA_SQL):
+            try:
+                await conn.execute(statement)
+            except Exception:
+                pass  # Table/index already exists
 
 
 async def close_db():
