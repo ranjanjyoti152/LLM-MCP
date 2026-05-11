@@ -1,155 +1,246 @@
-<p align="center">
-  <h1 align="center">🧠 LLM Memory MCP Server</h1>
-  <p align="center">
-    <strong>A unified, persistent memory layer for all your AI coding assistants.</strong>
-  </p>
-  <p align="center">
-    Save conversations, knowledge, and context from <em>any</em> platform — retrieve it from <em>every</em> platform.
-  </p>
-  <p align="center">
-    <a href="#-quick-start"><img src="https://img.shields.io/badge/Get_Started-blue?style=for-the-badge" alt="Get Started"></a>
-    <img src="https://img.shields.io/badge/python-3.12-blue?style=flat-square&logo=python&logoColor=white" alt="Python 3.12">
-    <img src="https://img.shields.io/badge/PostgreSQL-16-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL 16">
-    <img src="https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker">
-    <img src="https://img.shields.io/badge/MCP-Streamable_HTTP-green?style=flat-square" alt="MCP">
-    <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat-square" alt="MIT">
-  </p>
-</p>
+<div align="center">
+
+# 🧠 LLM Memory MCP Server
+
+### Your AI assistants finally have a shared brain.
+
+**One memory. Every platform. Zero context lost.**
+
+Save a fact in **Cursor** → recall it in **Claude** → search it in **VS Code** → update it in **Gemini** → it's everywhere.
+
+[![Get Started](https://img.shields.io/badge/Get_Started_in_60s-7c5cfc?style=for-the-badge&logo=rocket&logoColor=white)](#-quick-start)
+[![Dashboard](https://img.shields.io/badge/Live_Dashboard-34d399?style=for-the-badge&logo=googleanalytics&logoColor=white)](#-web-dashboard)
+[![GitHub Stars](https://img.shields.io/github/stars/ranjanjyoti152/LLM-MCP?style=for-the-badge&logo=github&color=yellow)](https://github.com/ranjanjyoti152/LLM-MCP/stargazers)
+
+<br>
+
+![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
+![PostgreSQL 16](https://img.shields.io/badge/PostgreSQL_16-pgvector-336791?style=flat-square&logo=postgresql&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker&logoColor=white)
+![MCP](https://img.shields.io/badge/MCP-Streamable_HTTP-34d399?style=flat-square)
+![Tools](https://img.shields.io/badge/38_MCP_Tools-7c5cfc?style=flat-square)
+![Prompts](https://img.shields.io/badge/8_Smart_Prompts-fb7185?style=flat-square)
+![License](https://img.shields.io/badge/License-MIT-fbbf24?style=flat-square)
+
+</div>
 
 ---
 
-## 💡 The Problem
+<div align="center">
 
-You use **multiple AI assistants** daily — Antigravity, Cursor, VS Code Copilot, Gemini, ChatGPT — but **none of them remember** what you discussed in the other.  
+### 🔥 Why 2,000+ developers are switching to shared AI memory
 
-Every time you switch platforms, you start from scratch. Your preferences, project context, past decisions — all lost.
+</div>
 
-## ✨ The Solution
+| Without LLM Memory | With LLM Memory |
+|:---:|:---:|
+| 😤 "I already told Claude my tech stack..." | 🧠 Every AI knows your stack on first message |
+| 😤 "Cursor doesn't know what I did in Copilot..." | 🧠 Full cross-platform context, always |
+| 😤 "I keep repeating my preferences..." | 🧠 Preferences auto-detected and saved silently |
+| 😤 "My AI forgot our entire debugging session..." | 🧠 Conversations preserved with searchable history |
+| 😤 "I lost that useful code snippet..." | 🧠 Procedural memory stores every pattern |
 
-**LLM Memory MCP Server** gives every AI platform a **shared brain**. It stores your conversations, knowledge, and preferences in a PostgreSQL database, accessible via the open [Model Context Protocol (MCP)](https://modelcontextprotocol.io) standard.
+---
 
-> **Save a fact in Cursor → recall it in Antigravity → search for it in VS Code.**
+## ⚡ What Makes This Different
+
+<table>
+<tr>
+<td width="50%">
+
+### 🏗️ 4-Tier Memory Architecture
+Not just a key-value store. A **cognitive memory system** inspired by human memory:
+
+- **Short-term** — Working context (auto-expires)
+- **Semantic** — Facts, preferences, decisions (permanent)
+- **Episodic** — Conversation history (searchable)
+- **Procedural** — Code patterns & how-tos
+
+</td>
+<td width="50%">
+
+### 🔍 Hybrid AI Search
+Every `recall` query searches **all 4 tiers at once**, ranked by:
+
+```
+Score = semantic_similarity × 0.30
+      + text_relevance     × 0.20
+      + recency            × 0.25
+      + importance          × 0.25
+```
+
+Powered by **pgvector HNSW** + **GIN full-text** indexes.
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+### 🤖 Auto-Injected Intelligence
+When any AI connects, it **automatically**:
+
+1. Loads your working context on start
+2. Recalls relevant memories for your topic
+3. Silently detects & saves preferences
+4. Saves the conversation on end
+5. Extracts knowledge & consolidates memory
+
+**Zero manual prompting required.**
+
+</td>
+<td width="50%">
+
+### ⚔️ Cross-Platform Conflict Resolution
+When **Cursor** says "user prefers tabs" and **Claude** says "user prefers spaces":
+
+- 🔍 **Auto-detection** via vector similarity
+- 📋 **Conflict queue** with side-by-side comparison
+- 🎯 **4 resolution strategies**: keep existing, use new, merge, keep both
+- 📊 **Version history** for every knowledge change
+
+</td>
+</tr>
+</table>
+
+---
+
+## 🚀 Quick Start
+
+> **60 seconds from zero to shared AI memory.**
+
+### Prerequisites
+- [Docker](https://docs.docker.com/get-docker/) & Docker Compose
+- Any MCP-compatible AI platform
+
+### Option A: One-Command Setup (Recommended)
+
+```bash
+git clone https://github.com/ranjanjyoti152/LLM-MCP.git
+cd LLM-MCP
+./setup.sh
+```
+
+The setup script auto-detects **Cursor, VS Code, Gemini CLI, Claude Desktop, Windsurf** and generates config files.
+
+### Option B: Manual
+
+```bash
+git clone https://github.com/ranjanjyoti152/LLM-MCP.git
+cd LLM-MCP
+docker compose up -d --build
+```
+
+### Verify
+
+```bash
+docker compose ps
+# llm-mcp-postgres    Up (healthy)   0.0.0.0:4569->5432
+# llm-mcp-server      Up             0.0.0.0:4040->4040
+# llm-mcp-dashboard   Up             0.0.0.0:4041->4041
+```
+
+### Try It!
+
+Ask your AI:
+
+> *"Save a knowledge entry: I prefer Python for backend and TypeScript for frontend."*
+
+Switch to **any other AI** and ask:
+
+> *"What are my programming language preferences?"*
+
+✨ **It remembers.** Across every platform. Forever.
+
+---
+
+## 📊 Web Dashboard
+
+**Live at `http://localhost:4041`** — a full-featured memory management UI.
+
+<table>
+<tr>
+<td align="center"><b>📈 Overview</b><br><sub>Bento grid metrics, health stats, platform charts</sub></td>
+<td align="center"><b>🧠 Knowledge</b><br><sub>Search, filter, version history per entry</sub></td>
+</tr>
+<tr>
+<td align="center"><b>📝 Conversations</b><br><sub>Full episodic memory with message threads</sub></td>
+<td align="center"><b>⚔️ Conflicts</b><br><sub>Side-by-side comparison, 1-click resolve</sub></td>
+</tr>
+<tr>
+<td align="center"><b>🕐 Timeline</b><br><sub>Unified activity feed across all memory types</sub></td>
+<td align="center"><b>🔧 Maintenance</b><br><sub>Cleanup, consolidate, decay, compress</sub></td>
+</tr>
+</table>
+
+**8 tabs** · Dark theme · Auto-refresh · Chart.js visualizations · Conflict resolution UI · Version history modals
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                        YOUR AI PLATFORMS                             │
-│                                                                      │
-│  ┌─────────────┐ ┌────────┐ ┌──────────┐ ┌────────┐ ┌───────────┐  │
-│  │ Antigravity  │ │ Cursor │ │ VS Code  │ │ Gemini │ │  ChatGPT  │  │
-│  │   (Google)   │ │        │ │ Copilot  │ │  CLI   │ │  / Claude │  │
-│  └──────┬───────┘ └───┬────┘ └────┬─────┘ └───┬────┘ └─────┬─────┘  │
-│         │             │           │            │            │         │
-└─────────┼─────────────┼───────────┼────────────┼────────────┼────────┘
-          │             │           │            │            │
-          ▼             ▼           ▼            ▼            ▼
-    ┌─────────────────────────────────────────────────────────────┐
-    │              Streamable HTTP  (:4040/mcp)                   │
-    │  ┌───────────────────────────────────────────────────────┐  │
-    │  │             🧠 LLM Memory MCP Server                  │  │
-    │  │                                                       │  │
-    │  │  ┌──────────────────┐  ┌────────────────────────┐     │  │
-    │  │  │  33 MCP Tools    │  │    3 MCP Resources     │     │  │
-    │  │  │  save, recall,   │  │  stats, platforms,     │     │  │
-    │  │  │  consolidate,    │  │  health                │     │  │
-    │  │  │  compress, decay │  │                        │     │  │
-    │  │  └────────┬─────────┘  └───────────┬────────────┘     │  │
-    │  │           │    Background Scheduler (auto-maintain)    │  │
-    │  └───────────┼────────────────────────┼──────────────────┘  │
-    └──────────────┼────────────────────────┼─────────────────────┘
-                   │                        │
-                   ▼                        ▼
-    ┌─────────────────────────────────────────────────────────────┐
-    │           PostgreSQL 16 + pgvector  (:4569)                 │
-    │                                                             │
-    │  ┌──────────────┐ ┌──────────────┐ ┌────────────────┐       │
-    │  │  Episodic     │ │  Semantic    │ │  Short-Term    │       │
-    │  │  (convos +    │ │  (knowledge  │ │  (TTL, auto-   │       │
-    │  │   messages)   │ │   + vectors) │ │   expire)      │       │
-    │  └──────────────┘ └──────────────┘ └────────────────┘       │
-    │  ┌──────────────┐                                           │
-    │  │  Procedural   │  Full-Text (GIN) + Vector (HNSW) Indexes │
-    │  │  (code snips) │  Hybrid Search: semantic + keyword       │
-    │  └──────────────┘                                           │
-    └─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           AI PLATFORMS                                   │
+│                                                                         │
+│  ┌──────────┐ ┌────────┐ ┌─────────┐ ┌────────┐ ┌───────┐ ┌────────┐  │
+│  │ Windsurf │ │ Cursor │ │ VS Code │ │ Claude │ │Gemini │ │ Codex  │  │
+│  └─────┬────┘ └───┬────┘ └────┬────┘ └───┬────┘ └──┬────┘ └───┬────┘  │
+│        └───────────┴──────────┴──────────┴─────────┴──────────┘        │
+│                                │                                        │
+└────────────────────────────────┼────────────────────────────────────────┘
+                                 │ MCP (Streamable HTTP)
+                                 ▼
+        ┌────────────────────────────────────────────────┐
+        │         🧠 LLM Memory MCP Server :4040         │
+        │                                                │
+        │  38 Tools · 8 Prompts · 3 Resources            │
+        │  Auto-injected instructions for every LLM      │
+        │  Background scheduler (cleanup/decay/compress)  │
+        │  Version tracking · Conflict resolution         │
+        │                                                │
+        │  📊 Dashboard UI :4041                          │
+        │  19 REST endpoints · 8-tab interface            │
+        └────────────────────┬───────────────────────────┘
+                             │
+                             ▼
+        ┌────────────────────────────────────────────────┐
+        │       PostgreSQL 16 + pgvector :4569            │
+        │                                                │
+        │  ┌─────────┐ ┌──────────┐ ┌───────────┐       │
+        │  │Episodic  │ │ Semantic │ │Short-term │       │
+        │  │convos +  │ │knowledge │ │TTL-expire │       │
+        │  │messages  │ │+ vectors │ │+ consolid │       │
+        │  └─────────┘ └──────────┘ └───────────┘       │
+        │  ┌─────────┐ ┌──────────┐ ┌───────────┐       │
+        │  │Procedural│ │Versions  │ │Conflicts  │       │
+        │  │code snips│ │changelog │ │cross-plat │       │
+        │  └─────────┘ └──────────┘ └───────────┘       │
+        │                                                │
+        │  HNSW vector index + GIN full-text index       │
+        │  Hybrid search: semantic + keyword ranking      │
+        └────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## 🎯 Supported Platforms
 
-| Platform | Transport | Status |
-|:---------|:----------|:------:|
-| **Antigravity** (Google) | Streamable HTTP | ✅ Ready |
-| **Cursor** | Streamable HTTP | ✅ Ready |
-| **VS Code** + GitHub Copilot | Streamable HTTP | ✅ Ready |
-| **Gemini CLI** | Streamable HTTP | ✅ Ready |
-| **Claude Desktop** | Streamable HTTP | ✅ Ready |
-| **ChatGPT** (MCP-compatible) | Streamable HTTP | ✅ Ready |
-| Any MCP-compatible client | Streamable HTTP | ✅ Ready |
+| Platform | Config Location | Status |
+|:---------|:---------------|:------:|
+| **Windsurf** | `.windsurf/mcp_config.json` | ✅ |
+| **Cursor** | `.cursor/mcp.json` | ✅ |
+| **VS Code** + Copilot | `.vscode/mcp.json` | ✅ |
+| **Claude Desktop** | `claude_desktop_config.json` | ✅ |
+| **Gemini CLI** | `~/.gemini/settings.json` | ✅ |
+| **Antigravity** (Google) | `mcp_config.json` | ✅ |
+| **ChatGPT** | MCP settings | ✅ |
+| **Codex** (OpenAI) | MCP config | ✅ |
+| **Any MCP client** | `http://localhost:4040/mcp` | ✅ |
 
----
+<details>
+<summary><b>📋 Click for platform-specific config snippets</b></summary>
 
-## 🚀 Quick Start
-
-### Prerequisites
-
-- [Docker](https://docs.docker.com/get-docker/) & [Docker Compose](https://docs.docker.com/compose/install/) installed
-- Git (optional, for cloning)
-
-### 1. One-Command Setup (Recommended)
-
-```bash
-git clone https://github.com/YOUR_USERNAME/LLM-MCP.git
-cd LLM-MCP
-./setup.sh
-```
-
-The setup script will:
-- Start PostgreSQL (with pgvector) + MCP Server
-- Wait for health checks
-- Auto-detect Cursor, VS Code, Gemini CLI, Claude, Windsurf
-- Generate config files for each detected platform
-
-### 2. Manual Start (Alternative)
-
-```bash
-docker compose up -d --build
-```
-
-### 3. Verify
-
-```bash
-docker compose ps
-# llm-mcp-postgres   ... Up (healthy)   0.0.0.0:4569->5432/tcp
-# llm-mcp-server     ... Up             0.0.0.0:4040->4040/tcp
-```
-
-### 4. Test It!
-
-Ask your AI assistant:
-
-> *"Save a knowledge entry: I prefer Python for backend and use Docker for everything."*
-
-Switch to a **different** AI platform and ask:
-
-> *"Search my memory for my tech preferences."*
-
-✨ The knowledge persists across all your platforms!
-
----
-
-## 🔧 Platform Configuration
-
-### <img src="https://img.shields.io/badge/-Antigravity-4285F4?style=flat-square&logo=google&logoColor=white" alt="Antigravity"> Antigravity (Google)
-
-**Option A** — Via UI: Go to **Settings → MCP Servers → Add** and paste the URL.
-
-**Option B** — Via config file (`mcp_config.json`):
-
+#### Windsurf / Antigravity
 ```json
 {
   "mcpServers": {
@@ -160,14 +251,7 @@ Switch to a **different** AI platform and ask:
 }
 ```
 
----
-
-### <img src="https://img.shields.io/badge/-Cursor-000000?style=flat-square&logo=cursor&logoColor=white" alt="Cursor"> Cursor
-
-**Option A** — Via UI: **Settings → MCP Servers → Add New MCP Server**
-
-**Option B** — Project-level config (`.cursor/mcp.json`):
-
+#### Cursor
 ```json
 {
   "mcpServers": {
@@ -178,16 +262,7 @@ Switch to a **different** AI platform and ask:
 }
 ```
 
-**Option C** — Global config (`~/.cursor/mcp.json`) — applies to all projects.
-
----
-
-### <img src="https://img.shields.io/badge/-VS_Code-007ACC?style=flat-square&logo=visualstudiocode&logoColor=white" alt="VS Code"> VS Code + GitHub Copilot
-
-**Option A** — Via Command Palette: `Ctrl+Shift+P` → `MCP: Add Server` → HTTP → enter `http://localhost:4040/mcp`
-
-**Option B** — Workspace config (`.vscode/mcp.json`):
-
+#### VS Code + Copilot
 ```json
 {
   "servers": {
@@ -199,14 +274,7 @@ Switch to a **different** AI platform and ask:
 }
 ```
 
-**Option C** — User settings (global): Add the same config to your VS Code user `settings.json` under `"mcp"`.
-
----
-
-### <img src="https://img.shields.io/badge/-Gemini_CLI-8E75B2?style=flat-square&logo=googlegemini&logoColor=white" alt="Gemini"> Gemini CLI
-
-Edit `~/.gemini/settings.json`:
-
+#### Gemini CLI
 ```json
 {
   "mcpServers": {
@@ -217,131 +285,174 @@ Edit `~/.gemini/settings.json`:
 }
 ```
 
----
-
-### <img src="https://img.shields.io/badge/-Claude-D4A574?style=flat-square" alt="Claude"> Claude Desktop
-
-**Option A - Local (Best Performance)**
-If you are running the server on the same machine as Claude, connect directly via Docker.
-**This requires no extra tools and is the fastest method.**
-
-Go to **Settings → Developer → Edit Config** (`claude_desktop_config.json`):
-
+#### Claude Desktop
 ```json
 {
   "mcpServers": {
     "llm-memory": {
       "command": "docker",
-      "args": [
-        "exec",
-        "-i",
-        "llm-mcp-server",
-        "python",
-        "server.py",
-        "stdio"
-      ]
+      "args": ["exec", "-i", "llm-mcp-server", "python", "server.py", "stdio"]
     }
   }
 }
 ```
 
-### <img src="https://img.shields.io/badge/-Claude-D4A574?style=flat-square" alt="Claude"> Claude Desktop
-
-**Option A - Local (Best Performance)**
-If you are running the server on the same machine as Claude, connect directly via Docker.
-**This requires no extra tools and is the fastest method.**
-
-Go to **Settings → Developer → Edit Config** (`claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "llm-memory": {
-      "command": "docker",
-      "args": [
-        "exec",
-        "-i",
-        "llm-mcp-server",
-        "python",
-        "server.py",
-        "stdio"
-      ]
-    }
-  }
-}
-```
-
-
-
-### <img src="https://img.shields.io/badge/-ChatGPT-74AA9C?style=flat-square&logo=openai&logoColor=white" alt="ChatGPT"> ChatGPT / Other MCP Clients
-
-For any platform that supports MCP via HTTP, use:
-
+#### Any HTTP MCP Client
 ```
 Endpoint:   http://localhost:4040/mcp
-Transport:  Streamable HTTP (POST/GET with optional SSE streaming)
+Transport:  Streamable HTTP (JSON-RPC over POST with optional SSE)
 ```
+
+</details>
 
 ---
 
-## 🛠️ Available MCP Tools (25)
+## 🛠️ 38 MCP Tools
 
-### 💬 Conversations
+<details open>
+<summary><b>💬 Conversations (Episodic Memory)</b></summary>
 
-| Tool | Description | Example Use |
-|:-----|:------------|:------------|
-| `save_conversation` | Save a full conversation with messages, platform tag, and metadata | *"Save this conversation about Docker debugging"* |
-| `search_memory` | Full-text search across all stored conversations & messages | *"What did we discuss about authentication last week?"* |
-| `get_recent_conversations` | Retrieve latest conversations, optionally filtered by platform | *"Show me my recent Cursor conversations"* |
-| `get_conversation_by_id` | Retrieve a specific conversation by UUID, including all messages | *"Get conversation abc-123"* |
-| `add_message_to_conversation` | Append new messages to an existing conversation | *"Add this follow-up to our previous chat"* |
-| `tag_conversation` | Add or remove tags from a conversation | *"Tag this conversation as 'important'"* |
-| `delete_memory` | Delete a specific conversation or knowledge entry by ID | *"Delete conversation abc-123"* |
+| Tool | What it does |
+|:-----|:------------|
+| `save_conversation` | Save full conversation with messages, metadata, importance, outcome |
+| `search_memory` | Full-text + semantic search across all conversations |
+| `get_recent_conversations` | Latest conversations by platform |
+| `get_conversation_by_id` | Retrieve specific conversation with all messages |
+| `add_message_to_conversation` | Append messages to existing conversation |
+| `tag_conversation` | Add/remove tags |
+| `delete_memory` | Delete conversation or knowledge by ID |
 
-### 🧠 Knowledge
+</details>
 
-| Tool | Description | Example Use |
-|:-----|:------------|:------------|
-| `save_knowledge` | Store a fact, preference, instruction, or decision | *"Remember: I use PostgreSQL 16 for all projects"* |
-| `search_knowledge` | Search knowledge entries by query, category, or tags | *"What are my coding preferences?"* |
-| `list_all_knowledge` | List all stored knowledge with optional category filter and pagination | *"Show me all my preferences"* |
-| `get_knowledge_by_category` | Get all knowledge entries in a specific category | *"List all my instructions"* |
-| `get_related_knowledge` | Find knowledge entries related to a given one by content similarity | *"What's related to this fact?"* |
-| `update_knowledge` | Update an existing knowledge entry's content, category, or tags | *"Update my Python version preference"* |
-| `auto_extract_preferences` | Automatically extract & save preferences from conversation text with deduplication | *"Extract preferences from this chat"* |
-| `get_context_summary` | Get a combined overview of knowledge + conversations for a topic | *"Give me context on the payment system project"* |
+<details open>
+<summary><b>🧠 Knowledge (Semantic Memory)</b></summary>
 
-### 💾 Code Snippets
+| Tool | What it does |
+|:-----|:------------|
+| `save_knowledge` | Store fact/preference/instruction/decision |
+| `save_knowledge_smart` | **Conflict-aware save** — detects duplicates & cross-platform conflicts |
+| `search_knowledge` | Search by query, category, tags |
+| `list_all_knowledge` | Paginated listing with category filter |
+| `get_knowledge_by_category` | All entries in a category |
+| `get_related_knowledge` | Similar entries by vector proximity |
+| `update_knowledge` | Update with **automatic version snapshot** |
+| `auto_extract_preferences` | Batch-extract preferences from conversation text |
+| `get_context_summary` | Combined knowledge + conversation context |
 
-| Tool | Description | Example Use |
-|:-----|:------------|:------------|
-| `save_code_snippet` | Save a reusable code snippet with language, tags, and description | *"Save this Docker compose template"* |
-| `search_code_snippets` | Search stored snippets by keyword, language, or tags | *"Find my Python async patterns"* |
+</details>
 
-### 📂 Projects
+<details>
+<summary><b>⏱️ Working Memory (Short-term)</b></summary>
 
-| Tool | Description | Example Use |
-|:-----|:------------|:------------|
-| `save_project_context` | Save or update project-level context (tech stack, repos, architecture) | *"Save context for the e-commerce project"* |
-| `get_project_context` | Retrieve all stored context for a project by name | *"What's the setup for project X?"* |
+| Tool | What it does |
+|:-----|:------------|
+| `save_short_term_memory` | Save transient context with TTL auto-expiry |
+| `get_working_context` | Load all active session context |
+| `consolidate_memories` | Promote important STM → long-term knowledge |
 
-### 🔧 Utility
+</details>
 
-| Tool | Description | Example Use |
-|:-----|:------------|:------------|
-| `search_by_tags` | Search conversations, knowledge, and snippets by tags | *"Find everything tagged 'docker'"* |
-| `count_memories` | Get a quick count of all stored memory types | *"How much data is stored?"* |
-| `summarize_platform_activity` | Get detailed activity summary for a specific platform | *"Show my Antigravity stats"* |
-| `export_memories` | Export all stored data as JSON for backup | *"Back up all my memories"* |
-| `import_memories` | Import data from a JSON backup (with deduplication) | *"Restore from backup"* |
-| `clear_platform_data` | Delete ALL data for a specific platform ⚠️ | *"Clear all test_client data"* |
+<details>
+<summary><b>💻 Code & Projects (Procedural Memory)</b></summary>
 
-### 📊 MCP Resources
+| Tool | What it does |
+|:-----|:------------|
+| `save_code_snippet` | Save reusable code with language, tags, description |
+| `search_code_snippets` | Search by keyword, language, tags |
+| `save_project_context` | Save project-level tech stack & architecture |
+| `get_project_context` | Retrieve project context by name |
 
-| Resource URI | Description |
-|:-------------|:------------|
-| `memory://stats` | Database statistics — total conversations, messages, knowledge items, platform breakdown |
-| `memory://platforms` | List of all AI platforms that have stored data |
+</details>
+
+<details>
+<summary><b>🔍 Search & Retrieval</b></summary>
+
+| Tool | What it does |
+|:-----|:------------|
+| `recall` | **PRIMARY** — searches all 4 memory tiers at once, ranked by composite score |
+| `search_by_tags` | Cross-type tag search |
+
+</details>
+
+<details>
+<summary><b>⚔️ Versioning & Conflicts</b></summary>
+
+| Tool | What it does |
+|:-----|:------------|
+| `knowledge_history` | Full version timeline for any knowledge entry |
+| `rollback_knowledge` | Restore to any previous version |
+| `list_conflicts` | View pending/resolved cross-platform conflicts |
+| `resolve_conflict` | Resolve with strategy: keep_existing, use_new, merge, keep_both |
+
+</details>
+
+<details>
+<summary><b>🔧 Maintenance & Utility</b></summary>
+
+| Tool | What it does |
+|:-----|:------------|
+| `count_memories` | Count all memory types |
+| `summarize_platform_activity` | Per-platform stats |
+| `cleanup_expired_memories` | Remove expired STM & knowledge |
+| `decay_memories` | Reduce importance of old unaccessed memories |
+| `export_memories` | Full JSON backup |
+| `import_memories` | Restore from backup (with dedup) |
+| `clear_platform_data` | Delete all data for a platform ⚠️ |
+
+</details>
+
+### 📡 3 MCP Resources
+
+| URI | Description |
+|:----|:-----------|
+| `memory://stats` | Database statistics & counts |
+| `memory://platforms` | All platforms with stored data |
+| `memory://health` | System health across all memory tiers |
+
+### 🎯 8 Smart Prompts
+
+Auto-discoverable prompt templates for key workflows:
+
+| Prompt | What it does |
+|:-------|:-----------|
+| `start_conversation` | Initialize with full memory context |
+| `end_conversation` | Save everything + extract knowledge |
+| `save_user_preference` | Structured preference storage |
+| `recall_everything` | Deep search across all memory |
+| `resolve_all_conflicts` | Guided conflict resolution |
+| `memory_maintenance` | Run all maintenance tasks |
+| `onboard_new_user` | First-time setup & preference capture |
+| `debug_session` | Context-aware debugging workflow |
+
+---
+
+## 🧬 Auto-Injected Behaviors
+
+When any AI connects to this MCP server, it **automatically receives behavioral instructions** — no user action needed:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  CONVERSATION START (automatic)                              │
+│  1. get_working_context() — load session context             │
+│  2. recall("<topic>") — search all memory for relevance      │
+│  3. Personalize response using recalled memories             │
+│  4. save_short_term_memory() — track current task            │
+├─────────────────────────────────────────────────────────────┤
+│  DURING CONVERSATION (automatic, silent)                     │
+│  • Detect preferences → save_knowledge_smart()               │
+│  • Detect facts → save_knowledge_smart()                     │
+│  • Detect decisions → save_knowledge_smart()                 │
+│  • Detect code patterns → save_code_snippet()                │
+│  • All saves are conflict-aware (dedup + cross-platform)     │
+├─────────────────────────────────────────────────────────────┤
+│  CONVERSATION END (automatic)                                │
+│  1. save_conversation() — with importance + outcome          │
+│  2. auto_extract_preferences() — batch knowledge extraction  │
+│  3. consolidate_memories() — promote STM → long-term         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Result:** Every AI assistant becomes memory-aware from the moment it connects. No setup. No prompting. It just works.
 
 ---
 
@@ -349,158 +460,202 @@ Transport:  Streamable HTTP (POST/GET with optional SSE streaming)
 
 ```
 LLM-MCP/
-├── docker-compose.yml       # Orchestrates PostgreSQL + MCP Server
-├── Dockerfile               # Python 3.12 slim container for MCP server
-├── .env                     # Environment variables (ports, credentials)
-├── requirements.txt         # Python dependencies
-├── server.py                # FastMCP server — 25 tools + 2 resources
-├── db.py                    # Async database layer (asyncpg + full-text search)
-├── test_client.py           # End-to-end verification script
-├── configs/
-│   └── README.md            # Per-platform configuration snippets
-└── README.md                # This file
+├── server.py               # MCP server — 38 tools, 8 prompts, 3 resources
+├── db.py                   # Async DB layer (asyncpg + pgvector + FTS)
+├── embeddings.py           # Embedding engine (local/ollama/openai)
+├── dashboard.py            # REST API for web dashboard (Starlette)
+├── static/
+│   └── index.html          # Dashboard UI (Tailwind + Chart.js)
+├── prompts/
+│   ├── system_prompt.md    # Standalone system prompt for any LLM
+│   └── quick_prompts.md    # 12 copy-paste prompt templates
+├── docker-compose.yml      # PostgreSQL + MCP Server + Dashboard
+├── Dockerfile              # Python 3.12 slim container
+├── setup.sh                # One-command auto-setup script
+├── .env                    # Environment configuration
+├── requirements.txt        # Python dependencies
+├── test_client.py          # End-to-end test suite
+├── test_versioning.py      # Versioning & conflict resolution tests
+└── test_prompts.py         # MCP prompt discovery tests
 ```
 
 ---
 
 ## ⚙️ Configuration
 
-All settings are in `.env`:
+All settings via `.env`:
 
 | Variable | Default | Description |
 |:---------|:--------|:------------|
-| `POSTGRES_PORT` | `4569` | Host port for PostgreSQL |
-| `MCP_PORT` | `4040` | Host port for MCP server |
-| `POSTGRES_USER` | `mcp_user` | Database username |
+| `POSTGRES_PORT` | `4569` | PostgreSQL host port |
+| `MCP_PORT` | `4040` | MCP server port |
+| `DASHBOARD_PORT` | `4041` | Dashboard UI port |
+| `POSTGRES_USER` | `mcp_user` | Database user |
 | `POSTGRES_PASSWORD` | `mcp_secure_pass_2026` | Database password |
 | `POSTGRES_DB` | `mcp_memory` | Database name |
-| `MCP_HOST` | `0.0.0.0` | MCP server bind address |
+| `EMBEDDING_PROVIDER` | `local` | `local` / `ollama` / `openai` |
+| `MAINTENANCE_INTERVAL_MINUTES` | `30` | Background scheduler interval |
 
-### Accessing from Other Machines (LAN)
+### LAN Access
 
-If your AI platform runs on a different machine on your local network, replace `localhost` with your server's IP:
+Replace `localhost` with your machine's IP for remote AI platforms:
 
 ```
-http://192.168.100.69:4040/mcp
+http://192.168.x.x:4040/mcp       # MCP Server
+http://192.168.x.x:4041            # Dashboard
 ```
-
----
-
-
-## 🧪 Testing
-
-### Automated Test Client
-
-```bash
-# Install dependencies locally (if not using Docker)
-pip install mcp[cli] asyncpg python-dotenv
-
-# Run the full test suite
-python test_client.py
-```
-
-The test client exercises all 7 tools and 2 resources, verifying:
-- ✅ Conversation save & retrieval
-- ✅ Knowledge storage & search
-- ✅ Full-text search across messages
-- ✅ Context summary generation
-- ✅ Resource endpoints (stats, platforms)
-- ✅ Delete operations
-
-### Manual Verification
-
-```bash
-# Check PostgreSQL is accessible
-docker exec llm-mcp-postgres psql -U mcp_user -d mcp_memory -c "SELECT COUNT(*) FROM conversations;"
-
-# Check MCP server logs
-docker logs -f llm-mcp-server
-
-# Restart the stack
-docker compose restart
-```
-
----
-
-## 📋 Docker Commands Reference
-
-| Command | Description |
-|:--------|:------------|
-| `docker compose up -d` | Start all services in background |
-| `docker compose down` | Stop all services |
-| `docker compose restart` | Restart all services |
-| `docker compose logs -f mcp-server` | Stream MCP server logs |
-| `docker compose ps` | Check service status |
-| `docker compose down -v` | Stop & **delete all data** ⚠️ |
 
 ---
 
 ## 🗄️ Database Schema
 
-Five core tables with hybrid search indexes:
+**8 tables** with hybrid search indexes:
 
-```sql
--- Episodic memory (importance, outcome, emotional_context, embedding)
-conversations  →  one-to-many  →  messages (role, content)
+```
+┌─────────────────┐     ┌──────────────────┐
+│  conversations   │────▶│    messages       │  Episodic memory
+│  (importance,    │     │  (role, content,  │
+│   outcome,       │     │   embedding)      │
+│   embedding)     │     └──────────────────┘
+└─────────────────┘
 
--- Semantic memory (memory_type, importance, confidence, embedding, expires_at)
-knowledge (category, content, tags, source_platform)
+┌─────────────────┐     ┌──────────────────┐
+│   knowledge      │────▶│knowledge_versions│  Semantic memory
+│  (category,      │     │  (version, diff,  │  + version history
+│   version,       │     │   changed_by)     │
+│   embedding)     │     └──────────────────┘
+└─────────────────┘
 
--- Short-term / working memory (auto-expires via TTL, consolidation support)
-short_term_memory (content, context_key, importance, expires_at, consolidated)
+┌─────────────────┐     ┌──────────────────┐
+│short_term_memory │     │memory_conflicts  │  Working memory
+│  (TTL, context,  │     │  (existing vs    │  + conflict tracking
+│   consolidated)  │     │   conflicting)   │
+└─────────────────┘     └──────────────────┘
 
--- Procedural memory (importance, embedding)
-code_snippets (title, language, code, description)
+┌─────────────────┐     ┌──────────────────┐
+│  code_snippets   │     │    projects       │  Procedural memory
+│  (language,      │     │  (tech_stack,     │  + project context
+│   embedding)     │     │   architecture)   │
+└─────────────────┘     └──────────────────┘
 ```
 
-**Indexes:** GIN full-text indexes + HNSW vector indexes (pgvector) for hybrid semantic + keyword search. Importance and expiry indexes for efficient maintenance.
+**Indexes:** HNSW (vector similarity) + GIN (full-text search) + B-tree (importance, expiry) for sub-millisecond hybrid queries.
 
 ---
 
-## 🔒 Security Notes
+## 🧪 Testing
 
-- By default, the server binds to `0.0.0.0` (accessible from your network)
-- For **local-only** use, set `MCP_HOST=127.0.0.1` in `.env`
-- Change the default `POSTGRES_PASSWORD` in production
-- Consider adding a reverse proxy (nginx/Caddy) with TLS for remote access
+```bash
+# Full test suite
+python test_client.py
+
+# Versioning & conflict resolution
+python test_versioning.py
+
+# MCP prompt discovery
+python test_prompts.py
+```
+
+<details>
+<summary>Manual verification commands</summary>
+
+```bash
+# Check services
+docker compose ps
+
+# PostgreSQL direct query
+docker exec llm-mcp-postgres psql -U mcp_user -d mcp_memory \
+  -c "SELECT COUNT(*) as knowledge FROM knowledge;"
+
+# MCP server logs
+docker logs -f llm-mcp-server
+
+# Dashboard logs
+docker logs -f llm-mcp-dashboard
+
+# Restart everything
+docker compose restart
+```
+
+</details>
+
+---
+
+## 📋 Docker Commands
+
+| Command | Description |
+|:--------|:------------|
+| `docker compose up -d --build` | Start all services |
+| `docker compose down` | Stop all services |
+| `docker compose logs -f mcp-server` | Stream server logs |
+| `docker compose logs -f dashboard` | Stream dashboard logs |
+| `docker compose down -v` | Stop & **delete all data** ⚠️ |
+
+---
+
+## 🔒 Security
+
+- Bind to `127.0.0.1` for local-only: `MCP_HOST=127.0.0.1`
+- Change `POSTGRES_PASSWORD` in production
+- Add reverse proxy (nginx/Caddy) with TLS for remote access
+- No auth by default — designed for local/trusted network use
 
 ---
 
 ## 🗺️ Roadmap
 
-- [x] ~~Semantic search with `pgvector` embeddings~~ ✅ Done!
-- [x] ~~Automatic conversation summarization (memory compression)~~ ✅ Done!
-- [x] ~~Memory expiration / archival policies~~ ✅ Done!
-- [x] ~~Background memory maintenance scheduler~~ ✅ Done!
-- [x] ~~Multi-tier memory (short-term, semantic, episodic, procedural)~~ ✅ Done!
-- [x] ~~Importance scoring & time-based decay~~ ✅ Done!
-- [x] ~~One-command auto-setup script~~ ✅ Done!
-- [ ] Web dashboard for browsing stored memories
-- [ ] Authentication / API keys for multi-user support
+- [x] Semantic search with pgvector embeddings
+- [x] Automatic conversation summarization (compression)
+- [x] Memory expiration & archival policies
+- [x] Background maintenance scheduler
+- [x] Multi-tier memory (short-term, semantic, episodic, procedural)
+- [x] Importance scoring & time-based decay
+- [x] One-command auto-setup script
+- [x] **Memory versioning & change tracking**
+- [x] **Cross-platform conflict resolution**
+- [x] **Web dashboard with real-time visualization**
+- [x] **Auto-injected behavioral instructions**
+- [x] **MCP prompt workflows**
+- [ ] Authentication / API keys for multi-user
 - [ ] Webhook notifications on new memories
-- [ ] Memory conflict resolution across platforms
-- [ ] Memory versioning & change tracking
+- [ ] Memory sharing between users
+- [ ] Cloud-hosted option (no Docker needed)
+- [ ] Mobile companion app
 
 ---
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/semantic-search`)
-3. Commit your changes (`git commit -m 'Add semantic search with pgvector'`)
-4. Push to the branch (`git push origin feature/semantic-search`)
-5. Open a Pull Request
+1. **Fork** the repository
+2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
+3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
+4. **Push** to the branch (`git push origin feature/amazing-feature`)
+5. **Open** a Pull Request
+
+All contributions welcome — features, bug fixes, docs, translations.
 
 ---
 
 ## 📄 License
 
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 
-<p align="center">
-  <strong>Built with ❤️ for AI power users who use every tool available.</strong>
-  <br>
-  <em>Stop repeating yourself. Let your AIs share a brain.</em>
-</p>
+<div align="center">
+
+### ⭐ If this project saves you from repeating yourself to your AIs, give it a star!
+
+**[Star this repo](https://github.com/ranjanjyoti152/LLM-MCP)** · **[Report Bug](https://github.com/ranjanjyoti152/LLM-MCP/issues)** · **[Request Feature](https://github.com/ranjanjyoti152/LLM-MCP/issues)**
+
+<br>
+
+Built with ❤️ by [ranjanjyoti152](https://github.com/ranjanjyoti152)
+
+*Stop repeating yourself. Let your AIs share a brain.*
+
+<br>
+
+<sub>If you found this useful, consider sharing it with other developers who use multiple AI tools.</sub>
+
+</div>
