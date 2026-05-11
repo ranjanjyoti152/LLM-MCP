@@ -225,22 +225,28 @@ Switch to **any other AI** and ask:
 
 ## 🎯 Supported Platforms
 
-| Platform | Config Location | Status |
-|:---------|:---------------|:------:|
-| **Windsurf** | `.windsurf/mcp_config.json` | ✅ |
-| **Cursor** | `.cursor/mcp.json` | ✅ |
-| **VS Code** + Copilot | `.vscode/mcp.json` | ✅ |
-| **Claude Desktop** | `claude_desktop_config.json` | ✅ |
-| **Gemini CLI** | `~/.gemini/settings.json` | ✅ |
-| **Antigravity** (Google) | `mcp_config.json` | ✅ |
-| **ChatGPT** | MCP settings | ✅ |
-| **Codex** (OpenAI) | MCP config | ✅ |
-| **Any MCP client** | `http://localhost:4040/mcp` | ✅ |
+| Platform | Transport | Status |
+|:---------|:----------|:------:|
+| **Windsurf** | Streamable HTTP | ✅ Ready |
+| **Cursor** | Streamable HTTP | ✅ Ready |
+| **VS Code** + GitHub Copilot | Streamable HTTP | ✅ Ready |
+| **Claude Desktop** | Streamable HTTP / stdio | ✅ Ready |
+| **Gemini CLI** | Streamable HTTP | ✅ Ready |
+| **Antigravity** (Google) | Streamable HTTP | ✅ Ready |
+| **ChatGPT** (MCP-compatible) | Streamable HTTP | ✅ Ready |
+| **Codex** (OpenAI) | Streamable HTTP | ✅ Ready |
+| Any MCP-compatible client | Streamable HTTP | ✅ Ready |
 
-<details>
-<summary><b>📋 Click for platform-specific config snippets</b></summary>
+---
 
-#### Windsurf / Antigravity
+## 🔧 Platform Configuration
+
+### <img src="https://img.shields.io/badge/-Windsurf-7c5cfc?style=flat-square" alt="Windsurf"> Windsurf
+
+**Option A** — Via UI: **Settings → MCP → Add Server** → paste the URL.
+
+**Option B** — Config file (`.windsurf/mcp_config.json`):
+
 ```json
 {
   "mcpServers": {
@@ -251,7 +257,32 @@ Switch to **any other AI** and ask:
 }
 ```
 
-#### Cursor
+---
+
+### <img src="https://img.shields.io/badge/-Antigravity-4285F4?style=flat-square&logo=google&logoColor=white" alt="Antigravity"> Antigravity (Google)
+
+**Option A** — Via UI: Go to **Settings → MCP Servers → Add** and paste the URL.
+
+**Option B** — Via config file (`mcp_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "llm-memory": {
+      "serverUrl": "http://localhost:4040/mcp"
+    }
+  }
+}
+```
+
+---
+
+### <img src="https://img.shields.io/badge/-Cursor-000000?style=flat-square&logo=cursor&logoColor=white" alt="Cursor"> Cursor
+
+**Option A** — Via UI: **Settings → MCP Servers → Add New MCP Server**
+
+**Option B** — Project-level config (`.cursor/mcp.json`):
+
 ```json
 {
   "mcpServers": {
@@ -262,7 +293,16 @@ Switch to **any other AI** and ask:
 }
 ```
 
-#### VS Code + Copilot
+**Option C** — Global config (`~/.cursor/mcp.json`) — applies to all projects.
+
+---
+
+### <img src="https://img.shields.io/badge/-VS_Code-007ACC?style=flat-square&logo=visualstudiocode&logoColor=white" alt="VS Code"> VS Code + GitHub Copilot
+
+**Option A** — Via Command Palette: `Ctrl+Shift+P` → `MCP: Add Server` → HTTP → enter `http://localhost:4040/mcp`
+
+**Option B** — Workspace config (`.vscode/mcp.json`):
+
 ```json
 {
   "servers": {
@@ -274,7 +314,14 @@ Switch to **any other AI** and ask:
 }
 ```
 
-#### Gemini CLI
+**Option C** — User settings (global): Add the same config to your VS Code user `settings.json` under `"mcp"`.
+
+---
+
+### <img src="https://img.shields.io/badge/-Gemini_CLI-8E75B2?style=flat-square&logo=googlegemini&logoColor=white" alt="Gemini"> Gemini CLI
+
+Edit `~/.gemini/settings.json`:
+
 ```json
 {
   "mcpServers": {
@@ -285,25 +332,42 @@ Switch to **any other AI** and ask:
 }
 ```
 
-#### Claude Desktop
+---
+
+### <img src="https://img.shields.io/badge/-Claude-D4A574?style=flat-square" alt="Claude"> Claude Desktop
+
+**Option A — Local (Best Performance):** Connect directly via Docker — no extra tools needed.
+
+Go to **Settings → Developer → Edit Config** (`claude_desktop_config.json`):
+
 ```json
 {
   "mcpServers": {
     "llm-memory": {
       "command": "docker",
-      "args": ["exec", "-i", "llm-mcp-server", "python", "server.py", "stdio"]
+      "args": [
+        "exec",
+        "-i",
+        "llm-mcp-server",
+        "python",
+        "server.py",
+        "stdio"
+      ]
     }
   }
 }
 ```
 
-#### Any HTTP MCP Client
+---
+
+### <img src="https://img.shields.io/badge/-ChatGPT-74AA9C?style=flat-square&logo=openai&logoColor=white" alt="ChatGPT"> ChatGPT / Codex / Other MCP Clients
+
+For any platform that supports MCP via HTTP, use:
+
 ```
 Endpoint:   http://localhost:4040/mcp
-Transport:  Streamable HTTP (JSON-RPC over POST with optional SSE)
+Transport:  Streamable HTTP (JSON-RPC over POST with optional SSE streaming)
 ```
-
-</details>
 
 ---
 
