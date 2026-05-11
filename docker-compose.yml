@@ -34,6 +34,22 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: llm-mcp-dashboard
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mcp_user}:${POSTGRES_PASSWORD:-mcp_secure_pass_2026}@postgres:5432/${POSTGRES_DB:-mcp_memory}
+      DASHBOARD_PORT: ${DASHBOARD_PORT:-4041}
+    ports:
+      - "${DASHBOARD_PORT:-4041}:4041"
+    command: ["python", "dashboard.py"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pgdata:
     driver: local

@@ -14,8 +14,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Expose MCP server port
-EXPOSE 4040
+# Expose ports (MCP server + Dashboard)
+EXPOSE 4040 4041
 
 # Run the MCP server
 CMD ["python", "server.py"]

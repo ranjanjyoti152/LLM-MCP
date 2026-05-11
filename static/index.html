@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Memory — Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            surface: { 0:'#09090b', 1:'#111113', 2:'#19191d', 3:'#222226', 4:'#2c2c31' },
+            accent: { DEFAULT:'#7c5cfc', light:'#a78bfa', dim:'#5b3fd4', muted:'rgba(124,92,252,0.12)' },
+            mint: '#34d399',
+            coral: '#fb7185',
+            sun: '#fbbf24',
+          },
+          borderRadius: { '2xl':'1rem', '3xl':'1.25rem', '4xl':'1.5rem' },
+          fontFamily: { sans: ['Inter','system-ui','sans-serif'], mono: ['"JetBrains Mono"','monospace'] },
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;450;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
+    *{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+    body{font-family:'Inter',system-ui,sans-serif;background:#09090b;color:#e4e4e7}
+    code,pre,.mono{font-family:'JetBrains Mono',monospace}
+
+    /* Mesh gradient hero */
+    .mesh-bg{position:fixed;inset:0;z-index:-1;overflow:hidden}
+    .mesh-bg::before{content:'';position:absolute;width:600px;height:600px;top:-200px;right:-100px;background:radial-gradient(circle,rgba(124,92,252,0.08) 0%,transparent 70%);filter:blur(80px)}
+    .mesh-bg::after{content:'';position:absolute;width:500px;height:500px;bottom:-150px;left:-100px;background:radial-gradient(circle,rgba(52,211,153,0.06) 0%,transparent 70%);filter:blur(80px)}
+
+    /* Cards */
+    .card{background:#111113;border:1px solid rgba(255,255,255,0.06);border-radius:1rem;transition:all .25s cubic-bezier(.4,0,.2,1)}
+    .card:hover{border-color:rgba(255,255,255,0.1);transform:translateY(-1px);box-shadow:0 12px 40px rgba(0,0,0,0.4)}
+    .card-flat{background:#111113;border:1px solid rgba(255,255,255,0.06);border-radius:1rem}
+
+    /* Bento */
+    .bento{display:grid;gap:1rem}
+
+    /* Tabs */
+    .nav-pill{padding:.5rem 1rem;border-radius:.75rem;font-size:.8125rem;font-weight:500;color:#71717a;transition:all .2s;cursor:pointer;white-space:nowrap}
+    .nav-pill:hover{color:#a1a1aa;background:rgba(255,255,255,0.03)}
+    .nav-pill.active{color:#e4e4e7;background:rgba(124,92,252,0.12);box-shadow:inset 0 0 0 1px rgba(124,92,252,0.2)}
+
+    /* Badge */
+    .pill{display:inline-flex;align-items:center;gap:4px;padding:2px 10px;border-radius:9999px;font-size:.6875rem;font-weight:600;letter-spacing:.02em}
+
+    /* Metric */
+    .metric-value{font-size:2rem;font-weight:800;letter-spacing:-.03em;line-height:1}
+    .metric-label{font-size:.75rem;font-weight:500;color:#71717a;margin-top:4px}
+    .metric-sub{font-size:.6875rem;color:#52525b}
+
+    /* Scrollbar */
+    ::-webkit-scrollbar{width:5px;height:5px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:#27272a;border-radius:3px}
+    ::-webkit-scrollbar-thumb:hover{background:#3f3f46}
+
+    /* Animations */
+    .fade-up{animation:fadeUp .5s cubic-bezier(.4,0,.2,1) both}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+    .stagger>*:nth-child(1){animation-delay:.05s}
+    .stagger>*:nth-child(2){animation-delay:.1s}
+    .stagger>*:nth-child(3){animation-delay:.15s}
+    .stagger>*:nth-child(4){animation-delay:.2s}
+    .stagger>*:nth-child(5){animation-delay:.25s}
+    .stagger>*:nth-child(6){animation-delay:.3s}
+
+    .pulse-live{width:6px;height:6px;border-radius:50%;background:#34d399;box-shadow:0 0 0 0 rgba(52,211,153,.5);animation:livePulse 2s infinite}
+    @keyframes livePulse{0%{box-shadow:0 0 0 0 rgba(52,211,153,.4)}70%{box-shadow:0 0 0 8px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
+
+    /* Modal */
+    .modal-bg{background:rgba(0,0,0,.6);backdrop-filter:blur(8px)saturate(1.2)}
+
+    /* Table rows */
+    .row-hover{transition:background .15s}
+    .row-hover:hover{background:rgba(255,255,255,.02)}
+
+    /* Gradient text */
+    .grad-text{background:linear-gradient(135deg,#7c5cfc,#34d399);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}
+
+    .line-clamp-2{display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  </style>
+</head>
+<body class="min-h-screen">
+  <div class="mesh-bg"></div>
+
+  <!-- ━━━ Header ━━━ -->
+  <header class="sticky top-0 z-50 border-b border-white/[0.04]" style="background:rgba(9,9,11,.85);backdrop-filter:blur(16px)saturate(1.4)">
+    <div class="max-w-[1440px] mx-auto px-6 h-14 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-xl bg-accent/20 flex items-center justify-center text-lg">🧠</div>
+        <span class="text-[.9375rem] font-semibold tracking-tight">Memory</span>
+        <span class="hidden sm:inline text-xs text-zinc-600 ml-1">v2.0</span>
+      </div>
+      <div class="flex items-center gap-4">
+        <div id="server-status" class="flex items-center gap-2">
+          <span class="pulse-live"></span>
+          <span class="text-xs text-zinc-500">Live</span>
+        </div>
+        <button onclick="refreshAll()" class="h-8 px-3 text-xs font-medium text-zinc-400 hover:text-zinc-200 bg-white/[0.04] hover:bg-white/[0.07] border border-white/[0.06] rounded-lg transition">Refresh</button>
+        <span id="last-refresh" class="text-[.6875rem] text-zinc-700 hidden sm:inline"></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ━━━ Nav ━━━ -->
+  <nav class="sticky top-14 z-40 border-b border-white/[0.03]" style="background:rgba(9,9,11,.75);backdrop-filter:blur(12px)">
+    <div class="max-w-[1440px] mx-auto px-6 flex gap-1 py-2 overflow-x-auto">
+      <button class="nav-pill active" data-tab="overview">Overview</button>
+      <button class="nav-pill" data-tab="knowledge">Knowledge</button>
+      <button class="nav-pill" data-tab="conversations">Conversations</button>
+      <button class="nav-pill" data-tab="shortterm">Working Memory</button>
+      <button class="nav-pill" data-tab="code">Code</button>
+      <button class="nav-pill" data-tab="conflicts">Conflicts</button>
+      <button class="nav-pill" data-tab="timeline">Timeline</button>
+      <button class="nav-pill" data-tab="maintenance">Maintenance</button>
+    </div>
+  </nav>
+
+  <!-- ━━━ Main ━━━ -->
+  <main class="max-w-[1440px] mx-auto px-6 py-8">
+
+    <!-- ═══ OVERVIEW ═══ -->
+    <section id="tab-overview" class="tab-content fade-up">
+      <!-- Bento Metrics -->
+      <div class="bento stagger" style="grid-template-columns:repeat(4,1fr)" id="stat-cards"></div>
+
+      <!-- Row 2: Health + Platform -->
+      <div class="bento mt-4" style="grid-template-columns:2fr 1fr">
+        <div class="card p-6">
+          <div class="flex items-center justify-between mb-5">
+            <h2 class="text-sm font-semibold text-zinc-300">System Health</h2>
+            <span class="pill bg-mint/10 text-mint">Healthy</span>
+          </div>
+          <div id="health-details" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
+        </div>
+        <div class="card p-6">
+          <h2 class="text-sm font-semibold text-zinc-300 mb-4">Platforms</h2>
+          <canvas id="platform-chart" height="200"></canvas>
+        </div>
+      </div>
+
+      <!-- Row 3: Charts -->
+      <div class="bento mt-4" style="grid-template-columns:1fr 1fr">
+        <div class="card p-6">
+          <h2 class="text-sm font-semibold text-zinc-300 mb-4">Memory Distribution</h2>
+          <canvas id="memory-dist-chart" height="180"></canvas>
+        </div>
+        <div class="card p-6">
+          <h2 class="text-sm font-semibold text-zinc-300 mb-4">Importance Overview</h2>
+          <canvas id="importance-chart" height="180"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ KNOWLEDGE ═══ -->
+    <section id="tab-knowledge" class="tab-content hidden fade-up">
+      <div class="flex flex-wrap items-center gap-2 mb-5">
+        <input id="knowledge-search" type="text" placeholder="Search knowledge..." class="flex-1 min-w-[200px] h-9 px-3 text-sm bg-surface-2 border border-white/[0.06] rounded-lg focus:outline-none focus:border-accent/40 placeholder-zinc-600">
+        <select id="knowledge-category" class="h-9 px-3 text-sm bg-surface-2 border border-white/[0.06] rounded-lg focus:outline-none text-zinc-400">
+          <option value="">All categories</option>
+          <option value="preference">Preference</option>
+          <option value="fact">Fact</option>
+          <option value="instruction">Instruction</option>
+          <option value="decision">Decision</option>
+        </select>
+        <button onclick="loadKnowledge()" class="h-9 px-4 text-sm font-medium bg-accent hover:bg-accent-dim text-white rounded-lg transition">Search</button>
+      </div>
+      <div id="knowledge-list" class="space-y-2"></div>
+      <div id="knowledge-pagination" class="flex justify-center gap-3 mt-6"></div>
+    </section>
+
+    <!-- ═══ CONVERSATIONS ═══ -->
+    <section id="tab-conversations" class="tab-content hidden fade-up">
+      <div class="flex items-center gap-2 mb-5">
+        <select id="conv-platform" class="h-9 px-3 text-sm bg-surface-2 border border-white/[0.06] rounded-lg text-zinc-400">
+          <option value="">All platforms</option>
+        </select>
+        <button onclick="loadConversations()" class="h-9 px-4 text-sm font-medium bg-accent hover:bg-accent-dim text-white rounded-lg transition">Filter</button>
+      </div>
+      <div id="conversations-list" class="space-y-2"></div>
+    </section>
+
+    <!-- ═══ SHORT-TERM ═══ -->
+    <section id="tab-shortterm" class="tab-content hidden fade-up">
+      <div class="bento stagger mb-6" style="grid-template-columns:repeat(3,1fr)" id="stm-summary"></div>
+      <h3 class="text-sm font-semibold text-zinc-300 mb-3">Active</h3>
+      <div id="stm-active" class="space-y-2"></div>
+      <h3 class="text-sm font-semibold text-sun/80 mt-8 mb-3">Expired</h3>
+      <div id="stm-expired" class="space-y-2"></div>
+    </section>
+
+    <!-- ═══ CODE ═══ -->
+    <section id="tab-code" class="tab-content hidden fade-up">
+      <div class="flex items-center gap-2 mb-5">
+        <input id="code-search" type="text" placeholder="Search code..." class="flex-1 h-9 px-3 text-sm bg-surface-2 border border-white/[0.06] rounded-lg focus:outline-none focus:border-accent/40 placeholder-zinc-600">
+        <select id="code-language" class="h-9 px-3 text-sm bg-surface-2 border border-white/[0.06] rounded-lg text-zinc-400">
+          <option value="">All languages</option>
+        </select>
+        <button onclick="loadCodeSnippets()" class="h-9 px-4 text-sm font-medium bg-accent hover:bg-accent-dim text-white rounded-lg transition">Search</button>
+      </div>
+      <div id="code-list" class="space-y-3"></div>
+    </section>
+
+    <!-- ═══ CONFLICTS ═══ -->
+    <section id="tab-conflicts" class="tab-content hidden fade-up">
+      <div class="flex items-center gap-2 mb-5">
+        <select id="conflict-status" class="h-9 px-3 text-sm bg-surface-2 border border-white/[0.06] rounded-lg text-zinc-400">
+          <option value="pending">Pending</option>
+          <option value="resolved">Resolved</option>
+        </select>
+        <button onclick="loadConflicts()" class="h-9 px-4 text-sm font-medium bg-accent hover:bg-accent-dim text-white rounded-lg transition">Filter</button>
+      </div>
+      <div id="conflicts-list" class="space-y-3"></div>
+    </section>
+
+    <!-- ═══ TIMELINE ═══ -->
+    <section id="tab-timeline" class="tab-content hidden fade-up">
+      <div id="timeline-list" class="relative ml-3 border-l border-white/[0.06] space-y-0"></div>
+    </section>
+
+    <!-- ═══ MAINTENANCE ═══ -->
+    <section id="tab-maintenance" class="tab-content hidden fade-up">
+      <div class="bento stagger" style="grid-template-columns:repeat(4,1fr)">
+        <div class="card p-5 cursor-pointer group" onclick="runMaintenance('cleanup')">
+          <div class="w-10 h-10 rounded-xl bg-mint/10 flex items-center justify-center text-xl mb-3 group-hover:scale-110 transition">🧹</div>
+          <h3 class="text-sm font-semibold text-zinc-200">Cleanup</h3>
+          <p class="text-xs text-zinc-600 mt-1">Remove expired memories</p>
+        </div>
+        <div class="card p-5 cursor-pointer group" onclick="runMaintenance('consolidate')">
+          <div class="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center text-xl mb-3 group-hover:scale-110 transition">📦</div>
+          <h3 class="text-sm font-semibold text-zinc-200">Consolidate</h3>
+          <p class="text-xs text-zinc-600 mt-1">STM → long-term</p>
+        </div>
+        <div class="card p-5 cursor-pointer group" onclick="runMaintenance('decay')">
+          <div class="w-10 h-10 rounded-xl bg-coral/10 flex items-center justify-center text-xl mb-3 group-hover:scale-110 transition">📉</div>
+          <h3 class="text-sm font-semibold text-zinc-200">Decay</h3>
+          <p class="text-xs text-zinc-600 mt-1">Reduce old importance</p>
+        </div>
+        <div class="card p-5 cursor-pointer group" onclick="runMaintenance('compress')">
+          <div class="w-10 h-10 rounded-xl bg-sun/10 flex items-center justify-center text-xl mb-3 group-hover:scale-110 transition">🗜️</div>
+          <h3 class="text-sm font-semibold text-zinc-200">Compress</h3>
+          <p class="text-xs text-zinc-600 mt-1">Cluster old conversations</p>
+        </div>
+      </div>
+      <div id="maintenance-result" class="card p-5 mt-4 hidden">
+        <h3 class="text-sm font-semibold text-zinc-300 mb-2">Result</h3>
+        <pre id="maintenance-output" class="text-xs text-zinc-400 mono whitespace-pre-wrap leading-relaxed"></pre>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ━━━ Modal ━━━ -->
+  <div id="modal" class="fixed inset-0 z-50 hidden modal-bg flex items-center justify-center p-4" onclick="if(event.target===this)closeModal()">
+    <div class="card-flat p-6 max-w-3xl w-full max-h-[80vh] overflow-y-auto" style="box-shadow:0 24px 80px rgba(0,0,0,.6)">
+      <div class="flex justify-between items-start mb-5">
+        <h2 id="modal-title" class="text-base font-bold text-zinc-200"></h2>
+        <button onclick="closeModal()" class="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.05] transition">&times;</button>
+      </div>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <script>
+    const API = '';
+    let charts = {};
+
+    // ─── Tab Navigation ───────────────────────────────────────
+    document.querySelectorAll('.nav-pill').forEach(t => {
+      t.addEventListener('click', () => {
+        document.querySelectorAll('.nav-pill').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(s => s.classList.add('hidden'));
+        t.classList.add('active');
+        const el = document.getElementById(`tab-${t.dataset.tab}`);
+        el.classList.remove('hidden');
+        el.classList.add('fade-up');
+        const loaders = {
+          overview: loadOverview, knowledge: loadKnowledge, conversations: loadConversations,
+          shortterm: loadShortTerm, code: loadCodeSnippets, conflicts: loadConflicts,
+          timeline: loadTimeline, maintenance: ()=>{},
+        };
+        (loaders[t.dataset.tab] || (()=>{}))();
+      });
+    });
+
+    // ─── Fetch Helper ─────────────────────────────────────────
+    async function api(path, opts) {
+      try {
+        const res = await fetch(API + path, opts);
+        return await res.json();
+      } catch (e) {
+        console.error('API error:', e);
+        document.getElementById('server-status').innerHTML = '<span class="w-2 h-2 rounded-full bg-coral"></span><span class="text-xs text-coral">Offline</span>';
+        return null;
+      }
+    }
+
+    // ─── Helpers ──────────────────────────────────────────────
+    function timeAgo(iso) {
+      if (!iso) return '—';
+      const s = Math.floor((Date.now() - new Date(iso)) / 1000);
+      if (s < 0) return 'just now';
+      if (s < 60) return `${s}s`;
+      if (s < 3600) return `${Math.floor(s/60)}m`;
+      if (s < 86400) return `${Math.floor(s/3600)}h`;
+      return `${Math.floor(s/86400)}d`;
+    }
+
+    function importanceBadge(v) {
+      v = parseFloat(v) || 0;
+      const c = v >= 0.8 ? 'bg-coral/10 text-coral' : v >= 0.6 ? 'bg-sun/10 text-sun' : v >= 0.4 ? 'bg-accent/10 text-accent-light' : 'bg-white/[0.04] text-zinc-500';
+      return `<span class="pill ${c}">${v.toFixed(2)}</span>`;
+    }
+
+    function platformBadge(p) {
+      const colors = { windsurf:'bg-cyan-400/10 text-cyan-400', gemini_cli:'bg-blue-400/10 text-blue-400', antigravity:'bg-mint/10 text-mint', cursor:'bg-sun/10 text-sun', claude:'bg-orange-400/10 text-orange-400', codex:'bg-violet-400/10 text-violet-400' };
+      return `<span class="pill ${colors[p] || 'bg-accent/10 text-accent-light'}">${p || '—'}</span>`;
+    }
+
+    function tagBadges(tags) {
+      if (!tags || !tags.length) return '';
+      return tags.slice(0,4).map(t => `<span class="pill bg-white/[0.04] text-zinc-500">${t}</span>`).join(' ');
+    }
+
+    function catIcon(c) {
+      const m = { preference:'◉', fact:'◆', instruction:'▸', decision:'⬡' };
+      return m[c] || '•';
+    }
+
+    function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+    function emptyState(msg) {
+      return `<div class="flex flex-col items-center justify-center py-16 text-zinc-600"><svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg><p class="mt-3 text-sm">${msg}</p></div>`;
+    }
+
+    // ─── OVERVIEW ─────────────────────────────────────────────
+    async function loadOverview() {
+      const [health, counts, platforms] = await Promise.all([
+        api('/api/health'), api('/api/counts'), api('/api/platforms'),
+      ]);
+      if (!health || !counts) return;
+
+      // Bento metric cards
+      const cards = [
+        { label: 'Knowledge', value: counts.knowledge || 0, sub: `${health.semantic_memory?.semantic_entries || 0} semantic`, accent: '#7c5cfc' },
+        { label: 'Conversations', value: counts.conversations || 0, sub: `${counts.messages || 0} messages`, accent: '#3b82f6' },
+        { label: 'Working Memory', value: health.short_term_memory?.active || 0, sub: `${health.short_term_memory?.expired_pending_cleanup || 0} expired`, accent: '#fbbf24' },
+        { label: 'Code Snippets', value: counts.code_snippets || 0, sub: `${counts.projects || 0} projects`, accent: '#34d399' },
+      ];
+      document.getElementById('stat-cards').innerHTML = cards.map(c => `
+        <div class="card p-5 fade-up">
+          <div class="flex items-center gap-2 mb-3">
+            <div class="w-1.5 h-1.5 rounded-full" style="background:${c.accent}"></div>
+            <span class="text-xs font-medium text-zinc-500 uppercase tracking-wider">${c.label}</span>
+          </div>
+          <div class="metric-value" style="color:${c.accent}">${c.value.toLocaleString()}</div>
+          <div class="metric-sub mt-2">${c.sub}</div>
+        </div>
+      `).join('');
+
+      // Health details
+      const hd = [
+        { label: 'Episodic Importance', value: (health.episodic_memory?.avg_importance || 0).toFixed(3), icon: '◈' },
+        { label: 'Semantic Importance', value: (health.semantic_memory?.avg_importance || 0).toFixed(3), icon: '◆' },
+        { label: 'Consolidated', value: health.semantic_memory?.consolidated_from_stm || 0, icon: '↗' },
+        { label: 'Expiring Soon', value: health.short_term_memory?.expiring_soon_30min || 0, icon: '⏳' },
+      ];
+      document.getElementById('health-details').innerHTML = hd.map(h => `
+        <div class="bg-surface-2 rounded-xl p-4">
+          <div class="text-zinc-600 text-xs mb-2">${h.icon}</div>
+          <div class="text-xl font-bold text-zinc-200 tracking-tight">${h.value}</div>
+          <div class="text-[.6875rem] text-zinc-600 mt-1">${h.label}</div>
+        </div>
+      `).join('');
+
+      // Platform chart
+      if (platforms?.platforms?.length) {
+        renderPlatformChart(platforms.platforms);
+      }
+
+      // Memory distribution chart
+      renderDistChart(counts);
+
+      // Importance chart
+      renderImportanceChart(health);
+    }
+
+    const chartColors = ['#7c5cfc','#3b82f6','#34d399','#fbbf24','#fb7185','#a78bfa','#22d3ee'];
+    const chartDefaults = { color: '#3f3f46', borderColor: '#27272a' };
+
+    function renderPlatformChart(platforms) {
+      const ctx = document.getElementById('platform-chart').getContext('2d');
+      if (charts.platform) charts.platform.destroy();
+      charts.platform = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: platforms.map(p => p.platform),
+          datasets: [{ data: platforms.map(p => p.conversation_count), backgroundColor: chartColors, borderWidth: 0, spacing: 2 }],
+        },
+        options: {
+          responsive: true,
+          cutout: '72%',
+          plugins: { legend: { position: 'bottom', labels: { color: '#52525b', font: { size: 10, family: 'Inter' }, padding: 12, usePointStyle: true, pointStyle: 'circle' } } },
+        },
+      });
+    }
+
+    function renderDistChart(counts) {
+      const ctx = document.getElementById('memory-dist-chart').getContext('2d');
+      if (charts.dist) charts.dist.destroy();
+      charts.dist = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: ['Knowledge', 'Conversations', 'Messages', 'STM', 'Code', 'Projects'],
+          datasets: [{
+            data: [counts.knowledge||0, counts.conversations||0, counts.messages||0, counts.short_term_memory||0, counts.code_snippets||0, counts.projects||0],
+            backgroundColor: chartColors.map(c => c + '20'),
+            borderColor: chartColors,
+            borderWidth: 1, borderRadius: 8, borderSkipped: false,
+          }],
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: { y: { ticks: { color: '#3f3f46', font: { size: 10 } }, grid: { color: '#ffffff08' }, border: { display: false } }, x: { ticks: { color: '#52525b', font: { size: 10 } }, grid: { display: false }, border: { display: false } } },
+        },
+      });
+    }
+
+    function renderImportanceChart(health) {
+      const ctx = document.getElementById('importance-chart').getContext('2d');
+      if (charts.importance) charts.importance.destroy();
+      charts.importance = new Chart(ctx, {
+        type: 'radar',
+        data: {
+          labels: ['Episodic', 'Semantic', 'Active STM', 'Consolidated'],
+          datasets: [{
+            data: [health.episodic_memory?.avg_importance || 0, health.semantic_memory?.avg_importance || 0, Math.min((health.short_term_memory?.active||0)/10, 1), Math.min((health.semantic_memory?.consolidated_from_stm||0)/10, 1)],
+            backgroundColor: 'rgba(124,92,252,0.08)', borderColor: '#7c5cfc', pointBackgroundColor: '#7c5cfc', pointRadius: 3, borderWidth: 1.5,
+          }],
+        },
+        options: {
+          responsive: true,
+          scales: { r: { angleLines: { color: '#ffffff08' }, grid: { color: '#ffffff06' }, pointLabels: { color: '#52525b', font: { size: 10 } }, ticks: { display: false }, beginAtZero: true, max: 1 } },
+          plugins: { legend: { display: false } },
+        },
+      });
+    }
+
+    // ─── KNOWLEDGE ────────────────────────────────────────────
+    let knowledgeOffset = 0;
+    async function loadKnowledge() {
+      const search = document.getElementById('knowledge-search').value;
+      const cat = document.getElementById('knowledge-category').value;
+      const data = await api(`/api/knowledge?search=${encodeURIComponent(search)}&category=${cat}&limit=20&offset=${knowledgeOffset}`);
+      if (!data) return;
+      const items = data.items || [];
+      document.getElementById('knowledge-list').innerHTML = items.length
+        ? items.map(k => `
+          <div class="card p-4 cursor-pointer group" onclick="showKnowledgeDetail('${k.id}')">
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <span class="text-accent-light text-xs">${catIcon(k.category)}</span>
+                <span class="pill bg-accent/10 text-accent-light">${esc(k.category)}</span>
+                ${platformBadge(k.source_platform)}
+                ${importanceBadge(k.importance)}
+              </div>
+              <span class="text-[.6875rem] text-zinc-700 group-hover:text-zinc-500 transition">${timeAgo(k.created_at)}</span>
+            </div>
+            <p class="text-[.8125rem] text-zinc-400 line-clamp-2 leading-relaxed">${esc(k.content)}</p>
+            <div class="mt-2.5 flex flex-wrap gap-1">${tagBadges(k.tags)}</div>
+          </div>
+        `).join('')
+        : emptyState('No knowledge entries found');
+    }
+
+    async function showKnowledgeDetail(id) {
+      const [detail, history] = await Promise.all([
+        api(`/api/knowledge/${id}`), api(`/api/knowledge/${id}/history`),
+      ]);
+      if (!detail) return;
+      openModal(detail.category?.toUpperCase() || 'Knowledge', `
+        <div class="space-y-5">
+          <div class="flex flex-wrap gap-2">
+            <span class="pill bg-accent/10 text-accent-light">${esc(detail.category)}</span>
+            ${platformBadge(detail.source_platform)}
+            ${importanceBadge(detail.importance)}
+            <span class="pill bg-white/[0.04] text-zinc-400">v${detail.version || 1}</span>
+          </div>
+          <div class="bg-surface-2 rounded-xl p-4 text-[.8125rem] text-zinc-300 leading-relaxed">${esc(detail.content)}</div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            ${[
+              ['Confidence', (detail.confidence||0).toFixed(2)],
+              ['Access Count', detail.access_count||0],
+              ['Created', timeAgo(detail.created_at)],
+              ['Updated', timeAgo(detail.updated_at)],
+            ].map(([l,v]) => `<div class="bg-surface-2 rounded-lg p-3"><div class="text-[.6875rem] text-zinc-600">${l}</div><div class="text-sm font-semibold text-zinc-300 mt-0.5">${v}</div></div>`).join('')}
+          </div>
+          <div class="flex flex-wrap gap-1">${tagBadges(detail.tags)}</div>
+          ${history && history.history?.length ? `
+            <div class="border-t border-white/[0.04] pt-4 mt-2">
+              <h3 class="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-3">Version History</h3>
+              <div class="space-y-2 max-h-60 overflow-y-auto">
+                ${history.history.map(v => `
+                  <div class="bg-surface-2 rounded-lg p-3 text-xs">
+                    <div class="flex justify-between mb-1.5">
+                      <div class="flex items-center gap-2">
+                        <span class="font-semibold text-accent-light">v${v.version}</span>
+                        <span class="pill bg-white/[0.04] text-zinc-500">${v.change_type}</span>
+                      </div>
+                      <span class="text-zinc-700">${timeAgo(v.timestamp)}</span>
+                    </div>
+                    <p class="text-zinc-500 leading-relaxed">${esc((v.content || '').substring(0, 150))}${v.content?.length > 150 ? '…' : ''}</p>
+                    <div class="flex gap-3 mt-1.5 text-zinc-600">
+                      ${v.changed_by ? `<span>by ${esc(v.changed_by)}</span>` : ''}
+                      ${v.change_reason ? `<span>— ${esc(v.change_reason)}</span>` : ''}
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      `);
+    }
+
+    // ─── CONVERSATIONS ────────────────────────────────────────
+    async function loadConversations() {
+      const platform = document.getElementById('conv-platform').value;
+      const data = await api(`/api/conversations?platform=${platform}&limit=30`);
+      if (!data) return;
+      document.getElementById('conversations-list').innerHTML = data.items.length
+        ? data.items.map(c => `
+          <div class="card p-4 cursor-pointer group" onclick="showConversationDetail('${c.id}')">
+            <div class="flex items-center justify-between mb-1.5">
+              <h3 class="text-sm font-medium text-zinc-200 group-hover:text-white transition">${esc(c.title || 'Untitled')}</h3>
+              <span class="text-[.6875rem] text-zinc-700">${timeAgo(c.created_at)}</span>
+            </div>
+            <p class="text-[.8125rem] text-zinc-500 line-clamp-2 leading-relaxed">${esc(c.summary || '')}</p>
+            <div class="flex items-center gap-2 mt-2.5">
+              ${platformBadge(c.platform)} ${importanceBadge(c.importance)}
+              ${c.outcome ? `<span class="pill ${c.outcome === 'success' ? 'bg-mint/10 text-mint' : c.outcome === 'failure' ? 'bg-coral/10 text-coral' : 'bg-white/[0.04] text-zinc-500'}">${c.outcome}</span>` : ''}
+              ${tagBadges(c.tags)}
+            </div>
+          </div>
+        `).join('')
+        : emptyState('No conversations found');
+    }
+
+    async function showConversationDetail(id) {
+      const data = await api(`/api/conversations/${id}`);
+      if (!data || data.error) return;
+      openModal(data.title || 'Conversation', `
+        <div class="space-y-4">
+          <div class="flex flex-wrap gap-2">
+            ${platformBadge(data.platform)} ${importanceBadge(data.importance)}
+            ${data.outcome ? `<span class="pill ${data.outcome==='success'?'bg-mint/10 text-mint':'bg-coral/10 text-coral'}">${data.outcome}</span>` : ''}
+          </div>
+          ${data.summary ? `<div class="bg-surface-2 rounded-xl p-4 text-[.8125rem] text-zinc-300 leading-relaxed">${esc(data.summary)}</div>` : ''}
+          <div class="border-t border-white/[0.04] pt-3">
+            <h3 class="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-3">Messages · ${(data.messages || []).length}</h3>
+            <div class="space-y-2 max-h-96 overflow-y-auto">
+              ${(data.messages || []).map(m => `
+                <div class="rounded-xl p-3 text-[.8125rem] ${m.role === 'user' ? 'bg-blue-500/[0.06] border border-blue-500/10' : 'bg-surface-2'}">
+                  <span class="text-[.6875rem] font-semibold uppercase tracking-wider ${m.role === 'user' ? 'text-blue-400' : 'text-accent-light'}">${m.role}</span>
+                  <p class="text-zinc-300 mt-1 leading-relaxed">${esc(m.content)}</p>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      `);
+    }
+
+    // ─── SHORT-TERM MEMORY ────────────────────────────────────
+    async function loadShortTerm() {
+      const data = await api('/api/short-term');
+      if (!data) return;
+      document.getElementById('stm-summary').innerHTML = [
+        { label: 'Active', value: data.total_active, accent: '#34d399' },
+        { label: 'Expired', value: data.total_expired, accent: '#fbbf24' },
+        { label: 'Consolidated', value: data.total_consolidated, accent: '#7c5cfc' },
+      ].map(s => `
+        <div class="card p-5 fade-up">
+          <div class="flex items-center gap-2 mb-2">
+            <div class="w-1.5 h-1.5 rounded-full" style="background:${s.accent}"></div>
+            <span class="text-xs text-zinc-500 uppercase tracking-wider font-medium">${s.label}</span>
+          </div>
+          <div class="metric-value" style="color:${s.accent}">${s.value}</div>
+        </div>
+      `).join('');
+
+      const renderItems = (items, container) => {
+        document.getElementById(container).innerHTML = items.length
+          ? items.map(m => `
+            <div class="card p-4">
+              <div class="flex justify-between items-start mb-2">
+                <div class="flex items-center gap-2">
+                  ${m.context_key ? `<span class="pill bg-accent/10 text-accent-light">${esc(m.context_key)}</span>` : ''}
+                  ${platformBadge(m.source_platform)}
+                  ${importanceBadge(m.importance)}
+                </div>
+                <span class="text-[.6875rem] text-zinc-700">expires ${timeAgo(m.expires_at)}</span>
+              </div>
+              <p class="text-[.8125rem] text-zinc-400 leading-relaxed">${esc(m.content)}</p>
+            </div>
+          `).join('')
+          : emptyState('None');
+      };
+      renderItems(data.active || [], 'stm-active');
+      renderItems(data.expired || [], 'stm-expired');
+    }
+
+    // ─── CODE SNIPPETS ────────────────────────────────────────
+    async function loadCodeSnippets() {
+      const search = document.getElementById('code-search').value;
+      const lang = document.getElementById('code-language').value;
+      const data = await api(`/api/code-snippets?search=${encodeURIComponent(search)}&language=${lang}`);
+      if (!data) return;
+      document.getElementById('code-list').innerHTML = (data.items || []).length
+        ? data.items.map(c => `
+          <div class="card p-5">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="text-sm font-medium text-zinc-200">${esc(c.title)}</h3>
+              <div class="flex gap-2">
+                <span class="pill bg-cyan-400/10 text-cyan-400">${esc(c.language)}</span>
+                ${platformBadge(c.source_platform)}
+              </div>
+            </div>
+            ${c.description ? `<p class="text-xs text-zinc-500 mb-3">${esc(c.description)}</p>` : ''}
+            <pre class="bg-surface-0 rounded-xl p-4 text-xs text-mint/90 overflow-x-auto mono leading-relaxed border border-white/[0.04]">${esc(c.code)}</pre>
+            <div class="mt-3 flex flex-wrap gap-1">${tagBadges(c.tags)}</div>
+          </div>
+        `).join('')
+        : emptyState('No code snippets found');
+    }
+
+    // ─── CONFLICTS ────────────────────────────────────────────
+    async function loadConflicts() {
+      const status = document.getElementById('conflict-status').value;
+      const data = await api(`/api/conflicts?status=${status}`);
+      if (!data) return;
+      document.getElementById('conflicts-list').innerHTML = (data.conflicts || []).length
+        ? data.conflicts.map(c => `
+          <div class="card p-5">
+            <div class="flex items-center justify-between mb-4">
+              <span class="pill ${c.resolution_status === 'pending' ? 'bg-sun/10 text-sun' : 'bg-mint/10 text-mint'}">${c.resolution_status}</span>
+              <span class="text-[.6875rem] text-zinc-700">${timeAgo(c.created_at)}</span>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div class="bg-surface-2 rounded-xl p-4">
+                <div class="flex items-center gap-2 mb-2">
+                  <div class="w-1.5 h-1.5 rounded-full bg-mint"></div>
+                  <span class="text-[.6875rem] text-zinc-500">Existing · ${esc(c.existing_platform || '?')}</span>
+                </div>
+                <p class="text-[.8125rem] text-zinc-300 leading-relaxed">${esc(c.existing_content || '')}</p>
+              </div>
+              <div class="bg-coral/[0.04] rounded-xl p-4 border border-coral/10">
+                <div class="flex items-center gap-2 mb-2">
+                  <div class="w-1.5 h-1.5 rounded-full bg-coral"></div>
+                  <span class="text-[.6875rem] text-coral/60">Conflicting · ${esc(c.conflicting_platform)}</span>
+                </div>
+                <p class="text-[.8125rem] text-zinc-300 leading-relaxed">${esc(c.conflicting_content)}</p>
+              </div>
+            </div>
+            ${c.resolution_status === 'pending' ? `
+              <div class="flex gap-2 mt-4">
+                <button onclick="resolveConflict('${c.conflict_id}','keep_existing')" class="h-8 px-3 text-xs font-medium bg-white/[0.04] hover:bg-white/[0.07] border border-white/[0.06] rounded-lg transition">Keep Existing</button>
+                <button onclick="resolveConflict('${c.conflict_id}','use_new')" class="h-8 px-3 text-xs font-medium bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 text-blue-400 rounded-lg transition">Use New</button>
+                <button onclick="resolveConflict('${c.conflict_id}','keep_both')" class="h-8 px-3 text-xs font-medium bg-accent/10 hover:bg-accent/20 border border-accent/20 text-accent-light rounded-lg transition">Keep Both</button>
+              </div>
+            ` : ''}
+          </div>
+        `).join('')
+        : emptyState('No conflicts found');
+    }
+
+    async function resolveConflict(id, strategy) {
+      await api(`/api/conflicts/${id}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ strategy, resolved_by: 'dashboard' }),
+      });
+      loadConflicts();
+    }
+
+    // ─── TIMELINE ─────────────────────────────────────────────
+    async function loadTimeline() {
+      const data = await api('/api/timeline?limit=30');
+      if (!data) return;
+      const typeAccents = { semantic:'#7c5cfc', episodic:'#3b82f6', short_term:'#fbbf24', procedural:'#34d399' };
+      document.getElementById('timeline-list').innerHTML = (data.events || []).map(e => `
+        <div class="relative pl-8 pb-1">
+          <div class="absolute left-[-5px] top-2 w-2.5 h-2.5 rounded-full border-2 border-surface-0" style="background:${typeAccents[e.memory_type]||'#3f3f46'}"></div>
+          <div class="card p-4 mb-2">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="pill" style="background:${typeAccents[e.memory_type]||'#3f3f46'}15;color:${typeAccents[e.memory_type]||'#71717a'}">${e.memory_type?.replace('_',' ')}</span>
+              ${platformBadge(e.source_platform)}
+              <span class="text-[.6875rem] text-zinc-700 ml-auto">${timeAgo(e.created_at)}</span>
+            </div>
+            ${e.title ? `<div class="text-[.8125rem] font-medium text-zinc-300">${esc(e.title)}</div>` : ''}
+            <p class="text-xs text-zinc-500 line-clamp-2 leading-relaxed mt-0.5">${esc((e.content || '').substring(0, 200))}</p>
+          </div>
+        </div>
+      `).join('') || emptyState('No activity yet');
+    }
+
+    // ─── MAINTENANCE ──────────────────────────────────────────
+    async function runMaintenance(action) {
+      const el = document.getElementById('maintenance-result');
+      const out = document.getElementById('maintenance-output');
+      el.classList.remove('hidden');
+      out.textContent = `Running ${action}...`;
+      const data = await api(`/api/maintenance/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      out.textContent = JSON.stringify(data, null, 2);
+    }
+
+    // ─── MODAL ────────────────────────────────────────────────
+    function openModal(title, html) {
+      document.getElementById('modal-title').textContent = title;
+      document.getElementById('modal-body').innerHTML = html;
+      document.getElementById('modal').classList.remove('hidden');
+    }
+    function closeModal() { document.getElementById('modal').classList.add('hidden'); }
+
+    // ─── INIT ─────────────────────────────────────────────────
+    async function refreshAll() {
+      document.getElementById('last-refresh').textContent = 'Refreshing...';
+      await loadOverview();
+      // Load platforms into conversation filter
+      const p = await api('/api/platforms');
+      if (p?.platforms) {
+        const sel = document.getElementById('conv-platform');
+        const existing = sel.value;
+        sel.innerHTML = '<option value="">All platforms</option>' +
+          p.platforms.map(pl => `<option value="${pl.platform}">${pl.platform}</option>`).join('');
+        sel.value = existing;
+      }
+      document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString();
+      document.getElementById('server-status').innerHTML = '<span class="pulse-live"></span><span class="text-xs text-zinc-500">Live</span>';
+    }
+
+    // Initial load
+    refreshAll();
+    // Auto-refresh every 30s
+    setInterval(refreshAll, 30000);
+  </script>
+</body>
+</html>

@@ -33,75 +33,79 @@ mcp = FastMCP(
     port=PORT,
     stateless_http=True,
     instructions="""
-    You are connected to a persistent memory server shared across all AI platforms.
-    This server implements a multi-tier memory architecture:
+    You have a PERSISTENT MEMORY that works across ALL AI platforms (Windsurf, Cursor, Claude, Gemini, ChatGPT, Codex, etc.).
+    Everything you learn about the user is shared everywhere. You are not stateless — you REMEMBER.
 
-    ╔══════════════════════════════════════════════════════════════╗
-    ║  MEMORY TYPES                                                ║
-    ║                                                              ║
-    ║  1. SHORT-TERM MEMORY  — transient working context (auto-expires)
-    ║     save_short_term_memory / get_working_context             ║
-    ║     e.g., "user is debugging auth", "working on file X"     ║
-    ║                                                              ║
-    ║  2. SEMANTIC MEMORY    — long-term facts & knowledge         ║
-    ║     save_knowledge (memory_type='semantic')                  ║
-    ║     e.g., "user prefers Python", "API runs on port 8080"    ║
-    ║                                                              ║
-    ║  3. EPISODIC MEMORY    — conversation history & experiences  ║
-    ║     save_conversation (with importance/outcome)              ║
-    ║     e.g., past debugging sessions, design discussions        ║
-    ║                                                              ║
-    ║  4. PROCEDURAL MEMORY  — reusable code & how-to patterns    ║
-    ║     save_code_snippet                                        ║
-    ║     e.g., Docker configs, utility functions, patterns        ║
-    ╚══════════════════════════════════════════════════════════════╝
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    MANDATORY — DO THIS AT THE START OF EVERY CONVERSATION:
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    1. Call get_working_context() — loads active session context
+    2. Call recall("<user's topic or greeting>") — searches ALL memory types
+    3. Use what you recall to personalize your response (name, preferences, ongoing work)
+    4. Call save_short_term_memory(content="<what we're working on>", context_key="current_task", source_platform="<your platform name>")
 
-    SMART RECALL:
-    - Use 'recall' as your PRIMARY retrieval tool — it searches ALL memory
-      types at once and ranks by relevance + recency + importance.
-    - Use 'get_working_context' at conversation start to load current context.
-    - Use specific search tools (search_memory, search_knowledge) only when
-      you need to target a single memory type.
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    MANDATORY — DO THIS DURING EVERY CONVERSATION:
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    Silently detect and save ANY of these WITHOUT being asked:
+    - Preferences: "I prefer X" → save_knowledge_smart(category="preference", importance=0.8)
+    - Facts: "Our API uses port 3000" → save_knowledge_smart(category="fact", importance=0.6)
+    - Decisions: "We chose PostgreSQL" → save_knowledge_smart(category="decision", importance=0.9)
+    - Instructions: "Always use async/await" → save_knowledge_smart(category="instruction", importance=0.9)
+    - Code patterns: Any reusable code → save_code_snippet(importance=0.7)
+    ALWAYS use save_knowledge_smart (NOT save_knowledge) — it detects duplicates and cross-platform conflicts automatically.
+    ALWAYS set source_platform to your platform name. ALWAYS add relevant tags.
 
-    CRITICAL — AUTOMATIC PREFERENCE SAVING:
-    You MUST proactively detect and save user preferences, facts, and decisions
-    during EVERY conversation — WITHOUT being asked. This is your most important job.
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    MANDATORY — DO THIS AT THE END OF EVERY CONVERSATION:
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    1. Call save_conversation(platform="<name>", title="<descriptive>", summary="<2-3 sentences>", messages=<history>, importance=<0.3-1.0>, outcome="success|failure|partial", tags=<topics>)
+    2. Call auto_extract_preferences(conversation_text=<full text>, source_platform="<name>")
+    3. Call consolidate_memories(source_platform="<name>")
 
-    Watch for and automatically save:
-    - Language/framework preferences ("I prefer Python", "I use React")
-    - Tool preferences ("I use Docker", "I deploy on AWS")
-    - Coding style ("I like type hints", "I prefer functional style")
-    - Project context ("The API runs on port 8080", "We use PostgreSQL")
-    - Personal preferences ("I prefer dark mode", "I like concise answers")
-    - Decisions ("We decided to use microservices", "We chose MIT license")
-    - Instructions ("Always use async/await", "Never use var in JS")
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    MEMORY ARCHITECTURE — 4 TIERS:
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    1. SHORT-TERM — save_short_term_memory / get_working_context
+       Transient session context. Auto-expires. Use for "currently debugging X", "working on file Y".
+    2. SEMANTIC — save_knowledge_smart / search_knowledge / update_knowledge
+       Permanent facts, preferences, instructions, decisions. Version-tracked. Conflict-aware.
+    3. EPISODIC — save_conversation / search_memory / get_recent_conversations
+       Conversation history. Searchable by topic, platform, outcome.
+    4. PROCEDURAL — save_code_snippet / search_code_snippets
+       Reusable code patterns, configs, utility functions.
 
-    HOW TO SAVE AUTOMATICALLY:
-    - Use 'save_knowledge' with category='preference', 'fact', 'instruction', or 'decision'
-      and set importance (0.7+ for strong preferences, 0.5 for general facts)
-    - OR use 'auto_extract_preferences' to batch-extract from a conversation
-    - For transient session context, use 'save_short_term_memory' instead
-    - Always include relevant tags for searchability
-    - Always set source_platform to your platform name
+    RECALL: Use 'recall' as your PRIMARY search — it searches all 4 tiers at once,
+    ranked by: semantic similarity (30%) + text relevance (20%) + recency (25%) + importance (25%).
 
-    IMPORTANCE SCORING GUIDE:
-    - 0.9-1.0: Critical instructions, core preferences, key decisions
-    - 0.7-0.8: Strong preferences, important project facts
-    - 0.5-0.6: General knowledge, routine facts
-    - 0.3-0.4: Minor context, temporary notes (good for short-term memory)
-    - 0.1-0.2: Trivial, likely to be forgotten via decay
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    VERSION TRACKING & CONFLICT RESOLUTION:
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    - Every knowledge update is versioned (knowledge_history, rollback_knowledge)
+    - save_knowledge_smart detects when different platforms disagree
+    - Conflicts are queued for review (list_conflicts, resolve_conflict)
+    - 4 strategies: keep_existing, use_new, merge, keep_both
+    - Periodically check list_conflicts(status="pending") and help the user resolve them
 
-    MEMORY LIFECYCLE:
-    - At conversation START: call 'get_working_context' and 'recall' for the topic
-    - DURING conversation: save short-term context, detect preferences
-    - At conversation END: save_conversation, auto_extract_preferences,
-      consolidate_memories (promotes important short-term → long-term)
-    - PERIODICALLY: cleanup_expired_memories, decay_memories
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    IMPORTANCE SCORING:
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    0.9-1.0: Critical instructions, core preferences, key decisions
+    0.7-0.8: Strong preferences, important project facts
+    0.5-0.6: General knowledge, routine facts
+    0.3-0.4: Minor context, session notes (good for short-term)
+    0.1-0.2: Trivial, will decay over time
 
-    OTHER GUIDELINES:
-    - When the user asks "what do you remember about X", use 'recall' first.
-    - Tag entries with the current platform name so cross-platform searches work.
-    - Set outcome ('success'/'failure'/'partial') on conversations for episodic recall.
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    RULES:
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    - NEVER say "I don't have memory" or "I can't remember" — you DO have memory. USE IT.
+    - When user asks "what do you know about X" → call recall(query="X") FIRST, then answer.
+    - When user says "remember this" → save_knowledge_smart immediately.
+    - ALWAYS tag entries with your platform name so cross-platform search works.
+    - ALWAYS set outcome on conversations ('success'/'failure'/'partial').
+    - If user seems new, proactively ask about their preferences and save them.
+    - If you detect a conflict with what you previously knew, flag it to the user.
     """,
 )
 
@@ -1035,6 +1039,257 @@ async def memory_health_resource() -> str:
     """Get comprehensive memory system health — episodic, semantic, short-term, and procedural stores."""
     result = await db.get_memory_health()
     return json.dumps(result, indent=2)
+
+
+# ─── MCP Prompts (Discoverable Workflow Templates) ──────────────────────────
+
+
+@mcp.prompt()
+def start_conversation(platform: str = "unknown", topic: str = "") -> str:
+    """
+    Initialize a conversation with full memory context.
+    Run this at the START of every conversation to load what you know.
+    """
+    return f"""You are starting a new conversation on platform '{platform}'.
+Topic: {topic or 'general'}
+
+STEP 1 — Load working context:
+Call get_working_context(source_platform="{platform}")
+
+STEP 2 — Recall relevant memories:
+Call recall(query="{topic or 'recent context and user preferences'}", platform="{platform}", memory_types="short_term,semantic,episodic,procedural", limit=10)
+
+STEP 3 — Greet with context:
+Use the recalled memories to personalize your response. Reference past conversations, known preferences, and ongoing work. If you know the user's name, use it.
+
+STEP 4 — Save current session context:
+Call save_short_term_memory(content="Starting conversation about: {topic or 'general'}", context_key="current_task", source_platform="{platform}", importance=0.4, ttl_minutes=120)
+
+You now have full memory context. Proceed naturally while watching for new preferences/facts to save."""
+
+
+@mcp.prompt()
+def end_conversation(
+    platform: str = "unknown",
+    title: str = "",
+    outcome: str = "success",
+) -> str:
+    """
+    Wrap up a conversation — save it to episodic memory, extract preferences,
+    and consolidate short-term memories.
+    """
+    return f"""The conversation is ending. Perform these memory operations:
+
+STEP 1 — Save the conversation to episodic memory:
+Call save_conversation with:
+- platform: "{platform}"
+- title: "{title or 'Untitled conversation'}"
+- summary: <write a 2-3 sentence summary of what was discussed/accomplished>
+- messages: <the full message history>
+- importance: <0.3-1.0 based on significance>
+- outcome: "{outcome}"
+- tags: <relevant topic tags>
+
+STEP 2 — Extract and save any preferences/facts mentioned:
+Call auto_extract_preferences with the conversation text and source_platform="{platform}".
+
+STEP 3 — Consolidate important short-term memories to long-term:
+Call consolidate_memories(source_platform="{platform}")
+
+STEP 4 — Confirm to the user what was saved."""
+
+
+@mcp.prompt()
+def save_user_preference(
+    preference: str = "",
+    platform: str = "unknown",
+) -> str:
+    """
+    Detect and save a user preference, fact, or decision.
+    Use this whenever you notice the user expressing a preference.
+    """
+    return f"""Detected a user preference/fact. Save it properly:
+
+Preference/Fact: "{preference}"
+Platform: "{platform}"
+
+CLASSIFICATION — Determine the category:
+- 'preference' — User likes/dislikes something ("I prefer dark mode", "I use TypeScript")
+- 'fact' — Objective information ("Our API runs on port 8080", "Team uses PostgreSQL")
+- 'instruction' — Standing orders ("Always use type hints", "Never commit to main directly")
+- 'decision' — Choices made ("We chose Next.js for the frontend", "Using MIT license")
+
+IMPORTANCE — Score it:
+- 0.9-1.0: Core identity ("I'm a backend developer", "Always use Python")
+- 0.7-0.8: Strong preference ("I prefer functional programming")
+- 0.5-0.6: General fact ("We deploy on Fridays")
+- 0.3-0.4: Minor detail
+
+ACTION — Use save_knowledge_smart (conflict-aware):
+Call save_knowledge_smart(
+    category=<detected category>,
+    content="{preference or '<the preference/fact>'}",
+    source_platform="{platform}",
+    tags=<relevant tags like ["coding-style", "python"]>,
+    importance=<scored importance>,
+    confidence=1.0
+)
+
+This will automatically detect duplicates and cross-platform conflicts."""
+
+
+@mcp.prompt()
+def recall_everything(topic: str = "") -> str:
+    """
+    Deep recall — search ALL memory types for everything related to a topic.
+    Use when the user asks "what do you know about X?"
+    """
+    return f"""The user wants to know everything you remember about: "{topic}"
+
+STEP 1 — Hybrid recall across all memory types:
+Call recall(query="{topic}", memory_types="short_term,semantic,episodic,procedural", limit=20)
+
+STEP 2 — Search for related code snippets:
+Call search_code_snippets(query="{topic}")
+
+STEP 3 — Check related knowledge:
+Call search_knowledge(query="{topic}")
+
+STEP 4 — Synthesize and present:
+Organize the results by type:
+- 🧠 **What I know** (semantic memories — facts, preferences, decisions)
+- 📝 **Past conversations** (episodic memories — what we discussed before)
+- 💻 **Code & patterns** (procedural memories — saved code snippets)
+- ⏱️ **Current context** (short-term memories — active session info)
+
+Present in a clear, conversational format. Mention which platform each memory came from if relevant."""
+
+
+@mcp.prompt()
+def resolve_all_conflicts() -> str:
+    """
+    Review and resolve all pending cross-platform memory conflicts.
+    Use when maintaining memory consistency.
+    """
+    return """Check for and resolve cross-platform memory conflicts:
+
+STEP 1 — List pending conflicts:
+Call list_conflicts(status="pending")
+
+STEP 2 — For each conflict, analyze both sides:
+- What does the existing knowledge say? (from which platform?)
+- What does the conflicting content say? (from which platform?)
+- Are they truly contradictory, or just different aspects?
+
+STEP 3 — Choose a resolution strategy for each:
+- 'keep_existing' — if the existing version is correct/newer
+- 'use_new' — if the new content is more accurate/recent
+- 'merge' — if both contain useful info (provide merged_content)
+- 'keep_both' — if they're different aspects of the same topic
+
+Call resolve_conflict(conflict_id=<id>, strategy=<chosen>, merged_content=<if merge>)
+
+STEP 4 — Report what was resolved to the user."""
+
+
+@mcp.prompt()
+def memory_maintenance() -> str:
+    """
+    Run a full memory system health check and maintenance cycle.
+    Cleanup, consolidate, compress, and report.
+    """
+    return """Run a complete memory maintenance cycle:
+
+STEP 1 — Health check:
+Call memory_health() to get system overview.
+
+STEP 2 — Cleanup expired memories:
+Call cleanup_expired_memories()
+
+STEP 3 — Consolidate short-term → long-term:
+Call consolidate_memories()
+
+STEP 4 — Check for conflicts:
+Call list_conflicts(status="pending")
+
+STEP 5 — Report to user:
+Summarize:
+- Total memories across all types
+- Memories cleaned up
+- Memories consolidated
+- Pending conflicts (if any)
+- Memory system health status
+
+If there are pending conflicts, ask if the user wants to resolve them."""
+
+
+@mcp.prompt()
+def onboard_new_user() -> str:
+    """
+    Onboard a new user — learn their preferences, tools, and working style
+    through a friendly interview. Saves everything to memory.
+    """
+    return """You're meeting a new user for the first time. Learn about them and save everything.
+
+ASK ABOUT (one topic at a time, conversationally):
+1. **Name & role** — "What should I call you? What's your role?"
+2. **Languages & frameworks** — "What programming languages do you work with most?"
+3. **Tools & environment** — "What's your dev setup? (IDE, OS, terminal, etc.)"
+4. **Coding style** — "Any coding conventions you follow? (tabs/spaces, naming style, etc.)"
+5. **Current projects** — "What are you working on right now?"
+6. **Communication style** — "Do you prefer detailed explanations or concise answers?"
+7. **AI platforms** — "Which AI assistants do you use besides this one?"
+
+FOR EACH ANSWER:
+- Call save_knowledge_smart with the right category and importance
+- Use tags like ["user-profile", "preference", "<topic>"]
+- Set importance 0.8+ for core identity items, 0.6 for general prefs
+
+ALSO:
+- Call save_project_context if they mention specific projects
+- Call save_short_term_memory for the onboarding session context
+
+END WITH:
+"Great! I've saved your preferences. They'll be available across ALL your AI platforms — Windsurf, Cursor, Gemini, Claude — wherever you connect this memory server."
+"""
+
+
+@mcp.prompt()
+def debug_session(
+    error_message: str = "",
+    platform: str = "unknown",
+) -> str:
+    """
+    Start a debugging session with full memory-assisted context.
+    Recalls past similar bugs, relevant code, and project context.
+    """
+    return f"""Starting a debug session. Load all relevant context:
+
+Error: "{error_message or '<to be described>'}"
+Platform: "{platform}"
+
+STEP 1 — Recall past similar issues:
+Call recall(query="bug error {error_message[:100] if error_message else 'debugging'}", memory_types="episodic,semantic,procedural", limit=10)
+
+STEP 2 — Load current working context:
+Call get_working_context(source_platform="{platform}")
+
+STEP 3 — Search for related code patterns:
+Call search_code_snippets(query="{error_message[:50] if error_message else 'error handling'}")
+
+STEP 4 — Assist with debugging:
+- Reference any past conversations where similar bugs were fixed
+- Use saved code patterns if applicable
+- Note the user's preferred debugging approach from preferences
+
+STEP 5 — Save context:
+Call save_short_term_memory(content="Debugging: {error_message[:100] if error_message else 'active debug session'}", context_key="current_debug", source_platform="{platform}", ttl_minutes=180)
+
+WHEN RESOLVED — Save the solution:
+- save_conversation with outcome='success' and tags=['debugging', '<error-type>']
+- save_code_snippet if a reusable fix was created
+- save_knowledge if a new fact was learned (e.g., "Port 3000 conflicts with service X")
+"""
 
 
 # ─── Memory Versioning & Conflict Resolution Tools ──────────────────────────
